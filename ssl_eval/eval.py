@@ -42,6 +42,7 @@ class Evaluator:
             with torch.no_grad():
                 for i, (x, y) in enumerate(self.train_loader):
                     x = x.cuda()
+                    y = y.cuda()
                     if flip:
                         x = torch.cat((x, torchvision.transforms.functional.hflip(x)), dim=0)
                         y = torch.cat((y, y), dim=0)
@@ -115,7 +116,7 @@ class Evaluator:
                 opt.zero_grad()
                 # Prepare data
                 j = indices[i * batch_size:(i + 1) + batch_size]
-                z = train_z[j].cuda().float()  # Ensure using float32 for high precision
+                z = train_z[j].cuda()  # Ensure using float32 for high precision
                 y = train_y[j].cuda()
 
                 # Evaluate
@@ -177,6 +178,8 @@ class Evaluator:
         # Ensure all k values are int
         ks = [int(k) for k in ks]
 
+        device = train_z.device
+
         # Normalize trained embeddings
         train_z = F.normalize(train_z, dim=1)
 
@@ -196,11 +199,11 @@ class Evaluator:
                 with torch.no_grad():
                     # Current batch's embeddings and labels
                     x = x.cuda()
-                    y = y.cpu()
-                    z = F.normalize(self.model(x)).cpu()
+                    y = y.to(device)
+                    z = F.normalize(self.model(x)).to(device)
 
                 # This batch's accuracy (for logging purpose)
-                batch_hits = torch.zeros(len(ks))
+                batch_hits = torch.zeros(len(ks)).to(device)
 
                 # Distance matrix
                 dist = z @ train_z.T
@@ -214,7 +217,7 @@ class Evaluator:
                     preds = pred_labels[:, :k].mode(dim=1)[0]
                     batch_hits[j] += (preds == y).sum()
 
-            n_hits += batch_hits
+            n_hits += batch_hits.cuda()
             total += len(y)
 
             if self.verbose:
