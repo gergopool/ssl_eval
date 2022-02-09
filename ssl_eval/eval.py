@@ -167,6 +167,17 @@ class Evaluator:
 
         return acc
 
+    def _mm_splitwise_on_gpu(self, small, large):
+        small = small.cuda()
+        batch_size = 10000
+        results = torch.zeros(len(small), len(large)).cuda()
+        for start in range(0, len(large), batch_size):
+            end = min(len(large), start + batch_size)
+            z = large[start:end].cuda()
+            sub_result = small @ z.T
+            results[:, start:end] = sub_result
+        return results.cpu()
+
     def knn(self, train_z: torch.Tensor, train_y: torch.Tensor, ks: list) -> torch.Tensor:
 
         if isinstance(ks, int):
@@ -206,7 +217,7 @@ class Evaluator:
                 batch_hits = torch.zeros(len(ks)).to(device)
 
                 # Distance matrix
-                dist = z @ train_z.T
+                dist = self._mm_splitwise_on_gpu(z, train_z)
 
                 # Get closes labels
                 closest_indices = dist.topk(largest_k, dim=1)[1]

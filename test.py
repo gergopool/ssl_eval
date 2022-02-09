@@ -200,6 +200,7 @@ def test(epoch):
     evaluator = Evaluator(net.encoder, 512, "cifar10", "/data/shared/data/cifar10")
     train_z, train_y = evaluator.generate_embeddings(flip=True)
     evaluator.linear_eval(train_z, train_y, epochs=10)
+    evaluator.knn(train_z, train_y, [1, 5])
 
 
 for epoch in range(2):
