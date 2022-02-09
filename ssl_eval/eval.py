@@ -116,7 +116,7 @@ class Evaluator:
                 opt.zero_grad()
                 # Prepare data
                 j = indices[i * batch_size:(i + 1) + batch_size]
-                z = train_z[j].cuda()  # Ensure using float32 for high precision
+                z = train_z[j].cuda().float()  # Ensure using float32 for high precision
                 y = train_y[j].cuda()
 
                 # Evaluate
