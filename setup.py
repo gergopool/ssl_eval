@@ -8,7 +8,7 @@ with open('README.md') as f:
 
 setup(
     name='ssl_eval',
-    version='0.0.1',
+    version='0.0.2',
     author='Gergely Papp',
     author_email='gergopool@gmail.com',
     packages=find_packages(),
