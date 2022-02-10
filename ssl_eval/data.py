@@ -6,7 +6,7 @@ from typing import Tuple
 
 from .distributed import get_world_size_n_rank
 
-__all__ = ['get_loaders_by_name']
+__all__ = ['get_loaders_by_name', "create_lin_eval_dataloader"]
 
 
 def get_loaders_by_name(root: str, dataset_name: str, **kwargs):
@@ -28,8 +28,14 @@ def get_loaders(train_dataset: Dataset,
 
     # Convert to distributed dataset if required
     if world_size > 1:
-        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
-        val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
+        train_sampler = DistributedSampler(train_dataset,
+                                           num_replicas=world_size,
+                                           rank=rank,
+                                           shuffle=True)
+        val_sampler = DistributedSampler(val_dataset,
+                                         num_replicas=world_size,
+                                         rank=rank,
+                                         shuffle=False)
     else:
         train_sampler = None
         val_sampler = None
@@ -96,3 +102,46 @@ def imagenet(root: str, batch_size: int = 256):
     val_dataset = datasets.ImageFolder(val_root, trans)
 
     return get_loaders(train_dataset, val_dataset, batch_size)
+
+
+# DATA FOR LINEAR EVAL
+
+
+class EmbeddingBank(Dataset):
+
+    def __init__(self, z, y):
+        super(EmbeddingBank, self).__init__()
+        self.z = z
+        self.y = y
+
+    def __len__(self):
+        return len(self.y)
+
+    def __getitem__(self, idx):
+        return self.z[idx], self.y[idx]
+
+
+def create_lin_eval_dataloader(z, y, batch_size=1000):
+
+    emb_dataset = EmbeddingBank(z, y)
+
+    # Get world size and current rank of this process
+    world_size, rank = get_world_size_n_rank()
+
+    # Convert to distributed dataset if required
+    if world_size > 1:
+        sampler = DistributedSampler(emb_dataset, num_replicas=world_size, rank=rank, shuffle=True)
+        shuffle = False
+    else:
+        sampler = None
+        shuffle = True
+
+    # Create data loaders
+    data_loader = DataLoader(emb_dataset,
+                             num_workers=8,
+                             pin_memory=True,
+                             persistent_workers=True,
+                             batch_size=batch_size,
+                             sampler=sampler)
+
+    return data_loader

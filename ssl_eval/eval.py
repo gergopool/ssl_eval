@@ -6,8 +6,8 @@ from typing import Union, Tuple
 import pkbar
 
 from .distributed import AllGather, AllReduce, get_world_size_n_rank
-from .data import get_loaders_by_name
-from .utils import accuracy
+from .data import get_loaders_by_name, create_lin_eval_dataloader
+from apex.parallel.LARC import LARC
 
 __all__ = ['Evaluator']
 
@@ -33,12 +33,16 @@ class Evaluator:
 
     def generate_embeddings(self, flip=False) -> Tuple[torch.Tensor, torch.Tensor]:
 
+        was_training = self.model.training
+        self.model.eval()
+
         train_z, train_y = [], []
 
         if self.verbose:
             pbar = pkbar.Pbar(name='\nGenerating embeddings', target=len(self.train_loader))
 
         with torch.cuda.amp.autocast(enabled=True):
+
             with torch.no_grad():
                 for i, (x, y) in enumerate(self.train_loader):
                     x = x.cuda()
@@ -60,6 +64,8 @@ class Evaluator:
                 train_z = torch.cat(train_z)
                 train_y = torch.cat(train_y)
 
+        self.model.train(was_training)
+
         return train_z.float(), train_y
 
     def _get_start_weights(self, train_z, train_y):
@@ -69,27 +75,37 @@ class Evaluator:
         for y in range(n_classes):
             i = (train_y == y).nonzero().ravel()
             mean_vec = z[i].mean(dim=0)
-            weights[y] = F.normalize(mean_vec, dim=0) * 5
-        return weights
+            weights[y] = F.normalize(mean_vec, dim=0)
+
+        scale = torch.norm(train_z, dim=1).mean() / 10
+        return weights / scale
+
+    def adjust_learning_rate(self, optimizer, init_lr, epoch, epochs):
+        """Decay the learning rate based on schedule"""
+        import math
+        cur_lr = init_lr * 0.5 * (1. + math.cos(math.pi * epoch / epochs))
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = cur_lr
 
     def linear_eval(self,
                     train_z: torch.Tensor,
                     train_y: torch.Tensor,
                     epochs: int = 100,
                     batch_size: int = None,
-                    lr: float = 1e-2) -> torch.Tensor:
+                    lr: float = 1.) -> torch.Tensor:
 
         # Define linear classifier
         n_classes = int(train_y.max() + 1)
         classifier = nn.Linear(self.cnn_dim, n_classes).cuda()
         classifier.weight.data.copy_(self._get_start_weights(train_z, train_y))
+        # classifier.weight.data.normal_(mean=0.0, std=0.01)
         classifier.bias.data.zero_()
         if self.world_size > 1:
             classifier = nn.parallel.DistributedDataParallel(classifier)
 
         # Optimizer and loss
         opt = torch.optim.SGD(classifier.parameters(), lr=lr, momentum=0.9)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epochs)
+        opt = LARC(optimizer=opt, trust_coefficient=.001, clip=False)
         criterion = nn.CrossEntropyLoss()
 
         # Choose large batch size for quick evaluation
@@ -97,48 +113,54 @@ class Evaluator:
             batch_size = 4096 if self.dataset == 'imagenet' else 256
             batch_size = int(batch_size / self.world_size)
 
-        lr = lr * batch_size * self.world_size / 256
-
-        # Iterations per epoch
-        ipe = len(train_z) // batch_size
+        data_loader = create_lin_eval_dataloader(train_z, train_y, batch_size)
 
         if self.verbose:
             print(f"\nLinear Eval - params: lr={lr:0.5f} | batch_size={batch_size}")
+            print(f"Linear Eval - Training {epochs} epochs.")
             # Progress bar
-            pbar = pkbar.Pbar(f"Linear Eval - Training {epochs} epochs.", target=epochs)
+            pbar = pkbar.Kbar(target=epochs * len(data_loader))
 
         # Train N epochs
         for epoch in range(epochs):
             # Random permutation of data inidces for the batch
-            indices = torch.randperm(len(train_z))
+            hits = 0
+            total = 0
 
-            for i in range(ipe):
+            self.adjust_learning_rate(opt, lr, epoch, epochs)
+
+            for z, y in data_loader:
                 opt.zero_grad()
                 # Prepare data
-                j = indices[i * batch_size:(i + 1) + batch_size]
-                z = train_z[j].cuda().float()  # Ensure using float32 for high precision
-                y = train_y[j].cuda()
+                z = z.cuda().float()  # Ensure using float32 for high precision
+                y = y.cuda()
 
                 # Evaluate
                 y_hat = classifier(z)
                 loss = criterion(y_hat, y)
 
+                # Acc data
+                hits += (y_hat.argmax(dim=1) == y).sum()
+                total += len(y)
+
                 # Backprop
                 loss.backward()
                 opt.step()
 
-            scheduler.step()
-
-            if self.verbose:
-                pbar.update(epoch)
+                if self.verbose:
+                    acc = (y_hat.argmax(dim=1) == y).sum() / len(y)
+                    pbar.add(1, values=[('loss', loss.item()), ("acc", acc)])
 
         if self.verbose:
             print(f"Linear Eval - Evaluating.")
             pbar = pkbar.Kbar(target=len(self.val_loader))
 
+        was_training = self.model.training
+        self.model.eval()
+
         # Evaluate once
         hits = torch.zeros(1).cuda()
-        total = 0
+        total = torch.zeros(1).cuda()
         for x, y in self.val_loader:
             # Prepare input x and y
             x = x.cuda()
@@ -159,11 +181,15 @@ class Evaluator:
                 pbar.add(1, values=[("acc", batch_hits / len(y))])
 
         # Mean accuracy over all ranks
-        acc = AllReduce.apply(hits / total)[0]
+        hits = AllGather.apply(hits).sum()
+        total = AllGather.apply(total).sum()
+        acc = hits / total
 
         if self.verbose:
             acc_value = acc.cpu().numpy()
             print(f"Top1 @ Linear Eval: {acc_value*100:3.2f}%")
+
+        self.model.train(was_training)
 
         return acc
 
@@ -190,6 +216,9 @@ class Evaluator:
         ks = [int(k) for k in ks]
 
         device = train_z.device
+
+        was_training = self.model.training
+        self.model.eval()
 
         # Normalize trained embeddings
         train_z = F.normalize(train_z, dim=1)
@@ -244,5 +273,7 @@ class Evaluator:
             accuracy_list = list(accuracies.cpu().numpy())
             for k, acc in zip(ks, accuracy_list):
                 print(f"Top1 @ K={k:<2d} : {acc*100:3.2f}%")
+
+        self.model.train(was_training)
 
         return accuracies
