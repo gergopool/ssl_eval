@@ -7,7 +7,6 @@ import pkbar
 
 from .distributed import AllGather, AllReduce, get_world_size_n_rank
 from .data import get_loaders_by_name, create_lin_eval_dataloader
-from apex.parallel.LARC import LARC
 
 __all__ = ['Evaluator']
 
@@ -92,7 +91,7 @@ class Evaluator:
     def linear_eval(self,
                     train_z: torch.Tensor,
                     train_y: torch.Tensor,
-                    epochs: int = 100,
+                    epochs: int = 10,
                     batch_size: int = 256,
                     lr: float = 1.) -> torch.Tensor:
 
@@ -113,8 +112,7 @@ class Evaluator:
         torch.backends.cudnn.benchmark = True
 
         # Optimizer and loss
-        opt = torch.optim.SGD(classifier.parameters(), lr=lr, momentum=0.9)
-        opt = LARC(optimizer=opt, trust_coefficient=.001, clip=False)
+        opt = torch.optim.Adam(classifier.parameters(), lr=lr)
         criterion = nn.CrossEntropyLoss().cuda()
 
         # Dataloader, distributed if world_size > 1
