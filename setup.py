@@ -8,12 +8,12 @@ with open('README.md') as f:
 
 setup(
     name='ssl_eval',
-    version='0.0.2',
+    version='0.0.3',
     author='Gergely Papp',
     author_email='gergopool@gmail.com',
     packages=find_packages(),
     package_dir={'ssl_eval': 'ssl_eval'},
-    package_data={'ssl_eval': ['res/*.txt']},
+    package_data={'ssl_eval': ['*.txt']},
     url='https://github.com/gergopool/ssl_eval',
     license='LICENSE',
     description='A plug & play evaluator for self-supervised image classification.',

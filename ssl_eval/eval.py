@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import torchvision
 from torch import nn
-from typing import Union, Tuple
+from typing import Tuple
 import pkbar
 
 from .distributed import AllGather, AllReduce, get_world_size_n_rank
@@ -41,28 +41,28 @@ class Evaluator:
         if self.verbose:
             pbar = pkbar.Pbar(name='\nGenerating embeddings', target=len(self.train_loader))
 
-        with torch.cuda.amp.autocast(enabled=True):
+        with torch.no_grad():
+            for i, (x, y) in enumerate(self.train_loader):
+                x = x.cuda()
+                y = y.cuda()
+                if flip:
+                    flipped_x = torchvision.transforms.functional.hflip(x)
+                    x = torch.cat((x, flipped_x))
+                z = self.model(x)
+                assert z.shape[-1] == self.cnn_dim, f"Expected dim {self.cnn_dim} but got dim {z.shape[-1]}"
+                if flip:
+                    z = z.view(2, -1, self.cnn_dim).permute(1, 2, 0)
+                z = AllGather.apply(z).cpu()
+                y = AllGather.apply(y).cpu()
 
-            with torch.no_grad():
-                for i, (x, y) in enumerate(self.train_loader):
-                    x = x.cuda()
-                    y = y.cuda()
-                    if flip:
-                        x = torch.cat((x, torchvision.transforms.functional.hflip(x)), dim=0)
-                        y = torch.cat((y, y), dim=0)
+                train_z.append(z)
+                train_y.append(y)
 
-                    z = self.model(x)
-                    z = AllGather.apply(z).cpu()
-                    y = AllGather.apply(y).cpu()
+                if self.verbose:
+                    pbar.update(i)
 
-                    train_z.append(z)
-                    train_y.append(y)
-
-                    if self.verbose:
-                        pbar.update(i)
-
-                train_z = torch.cat(train_z)
-                train_y = torch.cat(train_y)
+            train_z = torch.cat(train_z)
+            train_y = torch.cat(train_y)
 
         self.model.train(was_training)
 
@@ -70,6 +70,8 @@ class Evaluator:
 
     def _get_start_weights(self, train_z, train_y):
         n_classes = int(train_y.max() + 1)
+        if train_z.dim() == 3 and train_z.shape[-1] == 2:
+            train_z = train_z.mean(dim=-1)
         z = F.normalize(train_z, dim=1).float()
         weights = torch.zeros(n_classes, train_z.shape[-1]).cuda()
         for y in range(n_classes):
@@ -91,35 +93,37 @@ class Evaluator:
                     train_z: torch.Tensor,
                     train_y: torch.Tensor,
                     epochs: int = 100,
-                    batch_size: int = None,
+                    batch_size: int = 256,
                     lr: float = 1.) -> torch.Tensor:
 
         # Define linear classifier
         n_classes = int(train_y.max() + 1)
         classifier = nn.Linear(self.cnn_dim, n_classes).cuda()
-        classifier.weight.data.copy_(self._get_start_weights(train_z, train_y))
-        # classifier.weight.data.normal_(mean=0.0, std=0.01)
+        # classifier.weight.data.copy_(self._get_start_weights(train_z, train_y))
+        classifier.weight.data.normal_(mean=0.0, std=0.01)
         classifier.bias.data.zero_()
         if self.world_size > 1:
             classifier = nn.parallel.DistributedDataParallel(classifier)
 
+        # Remember original trianing mode
+        was_training = self.model.training
+        self.model.eval()
+
+        # Speed up running
+        torch.backends.cudnn.benchmark = True
+
         # Optimizer and loss
         opt = torch.optim.SGD(classifier.parameters(), lr=lr, momentum=0.9)
         opt = LARC(optimizer=opt, trust_coefficient=.001, clip=False)
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.CrossEntropyLoss().cuda()
 
-        # Choose large batch size for quick evaluation
-        if batch_size is None:
-            batch_size = 4096 if self.dataset == 'imagenet' else 256
-            batch_size = int(batch_size / self.world_size)
-
+        # Dataloader, distributed if world_size > 1
         data_loader = create_lin_eval_dataloader(train_z, train_y, batch_size)
 
         if self.verbose:
             print(f"\nLinear Eval - params: lr={lr:0.5f} | batch_size={batch_size}")
             print(f"Linear Eval - Training {epochs} epochs.")
-            # Progress bar
-            pbar = pkbar.Kbar(target=epochs * len(data_loader))
+            pbar = pkbar.Kbar(target=epochs * len(data_loader))  # Progress bar
 
         # Train N epochs
         for epoch in range(epochs):
@@ -129,10 +133,13 @@ class Evaluator:
 
             self.adjust_learning_rate(opt, lr, epoch, epochs)
 
+            if self.world_size > 1:
+                data_loader.sampler.set_epoch(epoch)
+
             for z, y in data_loader:
                 opt.zero_grad()
                 # Prepare data
-                z = z.cuda().float()  # Ensure using float32 for high precision
+                z = z.cuda()
                 y = y.cuda()
 
                 # Evaluate
@@ -155,9 +162,6 @@ class Evaluator:
             print(f"Linear Eval - Evaluating.")
             pbar = pkbar.Kbar(target=len(self.val_loader))
 
-        was_training = self.model.training
-        self.model.eval()
-
         # Evaluate once
         hits = torch.zeros(1).cuda()
         total = torch.zeros(1).cuda()
@@ -168,9 +172,7 @@ class Evaluator:
 
             # Predict
             with torch.no_grad():
-                with torch.cuda.amp.autocast(enabled=True):
-                    z = self.model(x)
-                y_hat = classifier(z.float())
+                y_hat = classifier(self.model(x))
 
             # Get accuracy
             batch_hits = (y_hat.argmax(1) == y).sum()
@@ -223,6 +225,10 @@ class Evaluator:
         # Normalize trained embeddings
         train_z = F.normalize(train_z, dim=1)
 
+        # Ignore flip mode, use only the original training image
+        if train_z.dim() == 3 and train_z.shape[-1] == 2:
+            train_z = train_z[..., 0]
+
         # Prepare variables
         total = 0  # total number of data, length
         largest_k = max(ks)  # largest k value out of all
@@ -235,27 +241,26 @@ class Evaluator:
 
         # Get knn prediction for each batch
         for x, y in self.val_loader:
-            with torch.cuda.amp.autocast(enabled=True):
-                with torch.no_grad():
-                    # Current batch's embeddings and labels
-                    x = x.cuda()
-                    y = y.to(device)
-                    z = F.normalize(self.model(x)).to(device)
+            with torch.no_grad():
+                # Current batch's embeddings and labels
+                x = x.cuda()
+                y = y.to(device)
+                z = F.normalize(self.model(x)).to(device)
 
-                # This batch's accuracy (for logging purpose)
-                batch_hits = torch.zeros(len(ks)).to(device)
+            # This batch's accuracy (for logging purpose)
+            batch_hits = torch.zeros(len(ks)).to(device)
 
-                # Distance matrix
-                dist = self._mm_splitwise_on_gpu(z, train_z)
+            # Distance matrix
+            dist = self._mm_splitwise_on_gpu(z, train_z)
 
-                # Get closes labels
-                closest_indices = dist.topk(largest_k, dim=1)[1]
-                pred_labels = torch.gather(train_y, dim=1, index=closest_indices)
+            # Get closes labels
+            closest_indices = dist.topk(largest_k, dim=1)[1]
+            pred_labels = torch.gather(train_y, dim=1, index=closest_indices)
 
-                # For each k get number of hits
-                for j, k in enumerate(ks):
-                    preds = pred_labels[:, :k].mode(dim=1)[0]
-                    batch_hits[j] += (preds == y).sum()
+            # For each k get number of hits
+            for j, k in enumerate(ks):
+                preds = pred_labels[:, :k].mode(dim=1)[0]
+                batch_hits[j] += (preds == y).sum()
 
             n_hits += batch_hits.cuda()
             total += len(y)

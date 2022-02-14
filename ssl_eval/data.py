@@ -1,4 +1,5 @@
 import os
+import random
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms, datasets
@@ -118,7 +119,14 @@ class EmbeddingBank(Dataset):
         return len(self.y)
 
     def __getitem__(self, idx):
-        return self.z[idx], self.y[idx]
+        z = self.z[idx]
+        y = self.y[idx]
+
+        # Get random flip if there are two flips
+        if z.dim() == 2 and z.shape[1] == 2:
+            z = z[..., random.randint(0, 1)]
+
+        return z, y
 
 
 def create_lin_eval_dataloader(z, y, batch_size=1000):
@@ -142,6 +150,7 @@ def create_lin_eval_dataloader(z, y, batch_size=1000):
                              pin_memory=True,
                              persistent_workers=True,
                              batch_size=batch_size,
+                             shuffle=shuffle,
                              sampler=sampler)
 
     return data_loader
