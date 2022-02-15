@@ -58,7 +58,7 @@ def get_loaders(train_dataset: Dataset,
     return train_loader, val_loader
 
 
-def cifar10(root: str, batch_size: int = 256):
+def cifar10(root: str, batch_size: int = 256, n_views: int = 1):
 
     trans = transforms.Compose([
         transforms.Resize(32),
@@ -66,13 +66,15 @@ def cifar10(root: str, batch_size: int = 256):
         transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
     ])
 
-    train_dataset = datasets.CIFAR10(root, transform=trans, train=True)
+    train_trans = NViewTransform(trans, n=n_views)
+
+    train_dataset = datasets.CIFAR10(root, transform=train_trans, train=True)
     val_dataset = datasets.CIFAR10(root, transform=trans, train=False)
 
     return get_loaders(train_dataset, val_dataset, batch_size)
 
 
-def cifar100(root: str, batch_size: int = 256):
+def cifar100(root: str, batch_size: int = 256, n_views: int = 1):
 
     trans = transforms.Compose([
         transforms.Resize(32),
@@ -80,29 +82,52 @@ def cifar100(root: str, batch_size: int = 256):
         transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
     ])
 
-    train_dataset = datasets.CIFAR100(root, transform=trans, train=True)
+    train_trans = NViewTransform(trans, n=n_views)
+
+    train_dataset = datasets.CIFAR100(root, transform=train_trans, train=True)
     val_dataset = datasets.CIFAR100(root, transform=trans, train=False)
 
     return get_loaders(train_dataset, val_dataset, batch_size)
 
 
-def imagenet(root: str, batch_size: int = 256):
+def imagenet(root: str, batch_size: int = 256, n_views: int = 1):
 
     # Different data roots for train and val
     train_root = os.path.join(root, 'train')
     val_root = os.path.join(root, 'val')
 
-    trans = transforms.Compose([
+    train_trans = transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    val_trans = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
-    train_dataset = datasets.ImageFolder(train_root, trans)
-    val_dataset = datasets.ImageFolder(val_root, trans)
+    train_trans = NViewTransform(train_trans, n=n_views)
+
+    train_dataset = datasets.ImageFolder(train_root, train_trans)
+    val_dataset = datasets.ImageFolder(val_root, val_trans)
 
     return get_loaders(train_dataset, val_dataset, batch_size)
+
+
+class NViewTransform:
+
+    def __init__(self, transform, n=1):
+        self.transform = transform
+        self.n = n
+
+    def __call__(self, x):
+        out = []
+        for _ in range(self.n):
+            out.append(self.transform(x))
+        return out
 
 
 # DATA FOR LINEAR EVAL
@@ -114,17 +139,15 @@ class EmbeddingBank(Dataset):
         super(EmbeddingBank, self).__init__()
         self.z = z
         self.y = y
+        self.n_views = z.shape[-1]
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, idx):
-        z = self.z[idx]
+        chosen_view = random.randint(0, self.n_views - 1)
+        z = self.z[idx, :, chosen_view]
         y = self.y[idx]
-
-        # Get random flip if there are two flips
-        if z.dim() == 2 and z.shape[1] == 2:
-            z = z[..., random.randint(0, 1)]
 
         return z, y
 

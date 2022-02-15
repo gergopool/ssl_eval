@@ -23,14 +23,28 @@ class Evaluator:
         self.model = model
         self.cnn_dim = cnn_dim
         self.dataset = dataset
+        self.root = root
         self.batch_size = batch_size
         self.world_size, self.rank = get_world_size_n_rank()
         self.verbose = verbose and self.rank == 0
 
-        data_loaders = get_loaders_by_name(root, dataset, batch_size=batch_size)
+        self.reset_data_loaders()
+
+    @property
+    def device(self):
+        return next(self.model.parameters()).device
+
+    def reset_data_loaders(self, n_views: int = 1):
+
+        data_loaders = get_loaders_by_name(self.root,
+                                           self.dataset,
+                                           batch_size=self.batch_size,
+                                           n_views=n_views)
         self.train_loader, self.val_loader = data_loaders
 
-    def generate_embeddings(self, flip=False) -> Tuple[torch.Tensor, torch.Tensor]:
+    def generate_embeddings(self, n_views: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        self.reset_data_loaders(n_views)
 
         was_training = self.model.training
         self.model.eval()
@@ -41,16 +55,14 @@ class Evaluator:
             pbar = pkbar.Pbar(name='\nGenerating embeddings', target=len(self.train_loader))
 
         with torch.no_grad():
-            for i, (x, y) in enumerate(self.train_loader):
-                x = x.cuda()
-                y = y.cuda()
-                if flip:
-                    flipped_x = torchvision.transforms.functional.hflip(x)
-                    x = torch.cat((x, flipped_x))
-                z = self.model(x)
-                assert z.shape[-1] == self.cnn_dim, f"Expected dim {self.cnn_dim} but got dim {z.shape[-1]}"
-                if flip:
-                    z = z.view(2, -1, self.cnn_dim).permute(1, 2, 0)
+            for i, (x_views, y) in enumerate(self.train_loader):
+                y = y.to(self.device)
+
+                # Save batch_size amount of embeddings of n views
+                z = torch.zeros(len(y), self.cnn_dim, n_views).to(self.device)
+                for j, x in enumerate(x_views):
+                    z[:, :, j] = self.model(x.to(self.device))
+
                 z = AllGather.apply(z).cpu()
                 y = AllGather.apply(y).cpu()
 
@@ -72,7 +84,7 @@ class Evaluator:
         if train_z.dim() == 3 and train_z.shape[-1] == 2:
             train_z = train_z.mean(dim=-1)
         z = F.normalize(train_z, dim=1).float()
-        weights = torch.zeros(n_classes, train_z.shape[-1]).cuda()
+        weights = torch.zeros(n_classes, train_z.shape[-1]).to(self.device)
         for y in range(n_classes):
             i = (train_y == y).nonzero().ravel()
             mean_vec = z[i].mean(dim=0)
@@ -97,7 +109,7 @@ class Evaluator:
 
         # Define linear classifier
         n_classes = int(train_y.max() + 1)
-        classifier = nn.Linear(self.cnn_dim, n_classes).cuda()
+        classifier = nn.Linear(self.cnn_dim, n_classes).to(self.device)
         # classifier.weight.data.copy_(self._get_start_weights(train_z, train_y))
         classifier.weight.data.normal_(mean=0.0, std=0.01)
         classifier.bias.data.zero_()
@@ -113,7 +125,7 @@ class Evaluator:
 
         # Optimizer and loss
         opt = torch.optim.Adam(classifier.parameters(), lr=lr)
-        criterion = nn.CrossEntropyLoss().cuda()
+        criterion = nn.CrossEntropyLoss().to(self.device)
 
         # Dataloader, distributed if world_size > 1
         data_loader = create_lin_eval_dataloader(train_z, train_y, batch_size)
@@ -137,8 +149,8 @@ class Evaluator:
             for z, y in data_loader:
                 opt.zero_grad()
                 # Prepare data
-                z = z.cuda()
-                y = y.cuda()
+                z = z.to(self.device)
+                y = y.to(self.device)
 
                 # Evaluate
                 y_hat = classifier(z)
@@ -161,12 +173,12 @@ class Evaluator:
             pbar = pkbar.Kbar(target=len(self.val_loader))
 
         # Evaluate once
-        hits = torch.zeros(1).cuda()
-        total = torch.zeros(1).cuda()
+        hits = torch.zeros(1).to(self.device)
+        total = torch.zeros(1).to(self.device)
         for x, y in self.val_loader:
             # Prepare input x and y
-            x = x.cuda()
-            y = y.cuda()
+            x = x.to(self.device)
+            y = y.to(self.device)
 
             # Predict
             with torch.no_grad():
@@ -194,12 +206,12 @@ class Evaluator:
         return acc
 
     def _mm_splitwise_on_gpu(self, small, large):
-        small = small.cuda()
+        small = small.to(self.device)
         batch_size = 10000
-        results = torch.zeros(len(small), len(large)).cuda()
+        results = torch.zeros(len(small), len(large)).to(self.device)
         for start in range(0, len(large), batch_size):
             end = min(len(large), start + batch_size)
-            z = large[start:end].cuda()
+            z = large[start:end].to(self.device)
             sub_result = small @ z.T
             results[:, start:end] = sub_result
         return results.cpu()
@@ -223,14 +235,13 @@ class Evaluator:
         # Normalize trained embeddings
         train_z = F.normalize(train_z, dim=1)
 
-        # Ignore flip mode, use only the original training image
-        if train_z.dim() == 3 and train_z.shape[-1] == 2:
-            train_z = train_z[..., 0]
+        # Take only 1 view for this
+        train_z = train_z[..., 0]
 
         # Prepare variables
-        total = 0  # total number of data, length
+        total = torch.zeros(1).to(self.device)  # total number of data, length
         largest_k = max(ks)  # largest k value out of all
-        n_hits = torch.zeros(len(ks)).cuda()  # Number of hits for each k
+        n_hits = torch.zeros(1, len(ks)).to(self.device)  # Number of hits for each k
         train_y = train_y.repeat(self.batch_size).view(self.batch_size, -1)  # train labels
 
         if self.verbose:
@@ -241,7 +252,7 @@ class Evaluator:
         for x, y in self.val_loader:
             with torch.no_grad():
                 # Current batch's embeddings and labels
-                x = x.cuda()
+                x = x.to(self.device)
                 y = y.to(device)
                 z = F.normalize(self.model(x)).to(device)
 
@@ -260,7 +271,7 @@ class Evaluator:
                 preds = pred_labels[:, :k].mode(dim=1)[0]
                 batch_hits[j] += (preds == y).sum()
 
-            n_hits += batch_hits.cuda()
+            n_hits[0] += batch_hits.to(self.device)
             total += len(y)
 
             if self.verbose:
@@ -270,7 +281,9 @@ class Evaluator:
                 pbar.add(1, values=update_values)
 
         # Get accuracy tensor for each k
-        accuracies = AllReduce.apply(n_hits / total)
+        n_hits = AllGather.apply(n_hits).sum(dim=0)
+        total = AllGather.apply(total).sum()
+        accuracies = n_hits / total
 
         if self.verbose:
             accuracy_list = list(accuracies.cpu().numpy())
