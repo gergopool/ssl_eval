@@ -1,11 +1,10 @@
 import torch
 import torch.nn.functional as F
-import torchvision
 from torch import nn
 from typing import Tuple
 import pkbar
 
-from .distributed import AllGather, AllReduce, get_world_size_n_rank
+from .distributed import AllGather, get_world_size_n_rank
 from .data import get_loaders_by_name, create_lin_eval_dataloader
 
 __all__ = ['Evaluator']
@@ -114,7 +113,9 @@ class Evaluator:
         classifier.weight.data.normal_(mean=0.0, std=0.01)
         classifier.bias.data.zero_()
         if self.world_size > 1:
-            classifier = nn.parallel.DistributedDataParallel(classifier)
+            classifier = nn.parallel.DistributedDataParallel(classifier,
+                                                             device_ids=[self.device],
+                                                             output_device=self.device)
 
         # Remember original trianing mode
         was_training = self.model.training
@@ -227,8 +228,6 @@ class Evaluator:
         # Ensure all k values are int
         ks = [int(k) for k in ks]
 
-        device = train_z.device
-
         was_training = self.model.training
         self.model.eval()
 
@@ -253,11 +252,11 @@ class Evaluator:
             with torch.no_grad():
                 # Current batch's embeddings and labels
                 x = x.to(self.device)
-                y = y.to(device)
-                z = F.normalize(self.model(x)).to(device)
+                y = y.cpu()
+                z = F.normalize(self.model(x))
 
             # This batch's accuracy (for logging purpose)
-            batch_hits = torch.zeros(len(ks)).to(device)
+            batch_hits = torch.zeros(len(ks)).to(self.device)
 
             # Distance matrix
             dist = self._mm_splitwise_on_gpu(z, train_z)
@@ -271,7 +270,7 @@ class Evaluator:
                 preds = pred_labels[:, :k].mode(dim=1)[0]
                 batch_hits[j] += (preds == y).sum()
 
-            n_hits[0] += batch_hits.to(self.device)
+            n_hits[0] += batch_hits
             total += len(y)
 
             if self.verbose:
