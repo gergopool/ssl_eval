@@ -1,4 +1,4 @@
-# Online Evaluation for Self-Supervised Image Classification in PyTorch
+# Evaluation for Self-Supervised Image Classification in PyTorch
 
 ![Python](https://img.shields.io/badge/python-3.8-blue)
 ![PyTorch](https://img.shields.io/badge/framework-pytorch-orange)
@@ -10,7 +10,7 @@ To give you an example, the linear evaluation of SimSiam's network achieves a 68
 
 ## How
 
-For accurate offline evaluation researchers use random crops of images. In contrast, this repository takes only a few crops of images, saves the generated embeddings to RAM and quickly iterates that with a large batch size and Adam optimizer.
+For accurate offline evaluation researchers use random crops of images. In contrast, this repository takes only a few crops of images, saves the generated embeddings to RAM and quickly iterates that with a large batch size and apex's LARC optimizer.
 
 ## Target audience
 
@@ -68,7 +68,7 @@ This is a recommended setup for Imagenet.
 | --- | ----------- |
 | top1_acc | Top1 accuracy achieved on the validation set. |
 
-*Note: Adam optimizer used for.*
+*Note: Nvidia's apex Larc optimizer used.*
 
 ### KNN
 ```python

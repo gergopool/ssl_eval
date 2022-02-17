@@ -6,6 +6,7 @@ import pkbar
 
 from .distributed import AllGather, get_world_size_n_rank
 from .data import get_loaders_by_name, create_lin_eval_dataloader
+from .larc import LARC
 
 __all__ = ['Evaluator']
 
@@ -102,9 +103,9 @@ class Evaluator:
     def linear_eval(self,
                     train_z: torch.Tensor,
                     train_y: torch.Tensor,
-                    epochs: int = 10,
+                    epochs: int = 100,
                     batch_size: int = 256,
-                    lr: float = 1.) -> torch.Tensor:
+                    lr: float = 0.1) -> torch.Tensor:
 
         # Define linear classifier
         n_classes = int(train_y.max() + 1)
@@ -125,7 +126,8 @@ class Evaluator:
         torch.backends.cudnn.benchmark = True
 
         # Optimizer and loss
-        opt = torch.optim.Adam(classifier.parameters(), lr=lr)
+        opt = torch.optim.SGD(classifier.parameters(), lr=lr)
+        opt = LARC(opt, trust_coefficient=0.001, clip=False)
         criterion = nn.CrossEntropyLoss().to(self.device)
 
         # Dataloader, distributed if world_size > 1

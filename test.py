@@ -199,7 +199,7 @@ def train(epoch):
 def test(epoch):
     evaluator = Evaluator(net.encoder, 512, "cifar10", "/data/shared/data/cifar10")
     train_z, train_y = evaluator.generate_embeddings(n_views=3)
-    evaluator.linear_eval(train_z, train_y, epochs=10)
+    evaluator.linear_eval(train_z, train_y, epochs=100, batch_size=2048, lr=32.)
     evaluator.knn(train_z, train_y, [1, 5])
 
 
