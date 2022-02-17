@@ -8,15 +8,15 @@ This modul is a handful tool to evaluate your self-supervised algorithm quickly 
 
 To give you an example, the linear evaluation of SimSiam's network achieves a 68% accuracy in 5 hours, while this code achieves 66% in 5 minutes with the same setup.
 
-## How
+## :question: How
 
 For accurate offline evaluation researchers use random crops of images. In contrast, this repository takes only a few crops of images, saves the generated embeddings to RAM and quickly iterates that with a large batch size and apex's LARC optimizer.
 
-## Target audience
+## :scientist: Target audience
 
 This modul is generally made for researchers working with Imagenet, therefore, the evalautor was designed for a multi-gpu setup with a large amount of RAM provided (200GB+). It's because the evaluator saves all training embeddings to RAM for quick access.
 
-## Usage
+## :electric_plug: Usage
 
 ### Define instance
 
