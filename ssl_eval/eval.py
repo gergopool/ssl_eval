@@ -3,9 +3,11 @@ import torch.nn.functional as F
 from torch import nn
 from typing import Tuple
 import pkbar
+from collections import OrderedDict
 
-from .distributed import AllGather, get_world_size_n_rank
+from .distributed import AllGather, AllReduce, get_world_size_n_rank
 from .data import get_loaders_by_name, create_lin_eval_dataloader
+from .early_stopping import EarlyStopping
 from .larc import LARC
 
 __all__ = ['Evaluator']
@@ -49,21 +51,25 @@ class Evaluator:
         was_training = self.model.training
         self.model.eval()
 
-        train_z, train_y = [], []
+        train_z, train_y, val_z, val_y = [], [], [], []
 
         if self.verbose:
-            pbar = pkbar.Pbar(name='\nGenerating embeddings', target=len(self.train_loader))
+            length = len(self.train_loader) + len(self.val_loader)
+            pbar = pkbar.Pbar(name='\nGenerating embeddings', target=length)
 
         with torch.no_grad():
+
+            # TRAIN
             for i, (x_views, y) in enumerate(self.train_loader):
                 y = y.to(self.device)
 
                 # Save batch_size amount of embeddings of n views
                 z = torch.zeros(len(y), self.cnn_dim, n_views).to(self.device)
-                for j, x in enumerate(x_views):
-                    z[:, :, j] = self.model(x.to(self.device))
+                with torch.cuda.amp.autocast():
+                    for j, x in enumerate(x_views):
+                        z[:, :, j] = self.model(x.to(self.device))
 
-                z = AllGather.apply(z).cpu()
+                z = AllGather.apply(z).float().cpu()
                 y = AllGather.apply(y).cpu()
 
                 train_z.append(z)
@@ -72,51 +78,56 @@ class Evaluator:
                 if self.verbose:
                     pbar.update(i)
 
+            # VAL
+            for i, (x, y) in enumerate(self.val_loader):
+                y = y.to(self.device)
+                with torch.cuda.amp.autocast():
+                    z = self.model(x.to(self.device))
+                z = z.unsqueeze(-1).float()
+                z = AllGather.apply(z).cpu()
+                y = AllGather.apply(y).cpu()
+
+                val_z.append(z)
+                val_y.append(y)
+
+                if self.verbose:
+                    pbar.update(len(train_y) + i)
+
             train_z = torch.cat(train_z)
             train_y = torch.cat(train_y)
+            val_z = torch.cat(val_z)
+            val_y = torch.cat(val_y)
 
         self.model.train(was_training)
 
-        return train_z.float(), train_y
-
-    def _get_start_weights(self, train_z, train_y):
-        n_classes = int(train_y.max() + 1)
-        if train_z.dim() == 3 and train_z.shape[-1] == 2:
-            train_z = train_z.mean(dim=-1)
-        z = F.normalize(train_z, dim=1).float()
-        weights = torch.zeros(n_classes, train_z.shape[-1]).to(self.device)
-        for y in range(n_classes):
-            i = (train_y == y).nonzero().ravel()
-            mean_vec = z[i].mean(dim=0)
-            weights[y] = F.normalize(mean_vec, dim=0)
-
-        scale = torch.norm(train_z, dim=1).mean() / 10
-        return weights / scale
-
-    def adjust_learning_rate(self, optimizer, init_lr, epoch, epochs):
-        """Decay the learning rate based on schedule"""
-        import math
-        cur_lr = init_lr * 0.5 * (1. + math.cos(math.pi * epoch / epochs))
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = cur_lr
+        return train_z, train_y, val_z, val_y
 
     def linear_eval(self,
                     train_z: torch.Tensor,
                     train_y: torch.Tensor,
+                    val_z: torch.Tensor,
+                    val_y: torch.Tensor,
                     epochs: int = 100,
                     batch_size: int = 256,
-                    lr: float = 0.1) -> torch.Tensor:
+                    lr: float = 0.1,
+                    scale_lr=True) -> torch.Tensor:
 
         # Define linear classifier
-        n_classes = int(train_y.max() + 1)
-        classifier = nn.Linear(self.cnn_dim, n_classes).to(self.device)
-        # classifier.weight.data.copy_(self._get_start_weights(train_z, train_y))
-        classifier.weight.data.normal_(mean=0.0, std=0.01)
-        classifier.bias.data.zero_()
+        n_classes = int(val_y.max() + 1)
+        classifier = nn.Sequential(
+            OrderedDict([('bn', nn.BatchNorm1d(self.cnn_dim, affine=False)),
+                         ('fc', nn.Linear(self.cnn_dim, n_classes))])).to(self.device)
+
+        classifier.fc.weight.data.normal_(mean=0.0, std=0.01)
+        classifier.fc.bias.data.zero_()
         if self.world_size > 1:
+            classifier = nn.SyncBatchNorm.convert_sync_batchnorm(classifier)
             classifier = nn.parallel.DistributedDataParallel(classifier,
                                                              device_ids=[self.device],
                                                              output_device=self.device)
+
+        if scale_lr:
+            lr = self.world_size * batch_size / 256 * lr
 
         # Remember original trianing mode
         was_training = self.model.training
@@ -126,30 +137,39 @@ class Evaluator:
         torch.backends.cudnn.benchmark = True
 
         # Optimizer and loss
-        opt = torch.optim.SGD(classifier.parameters(), lr=lr)
+        opt = torch.optim.SGD(classifier.parameters(), lr=lr, momentum=0.9)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=5, min_lr=lr / 100.)
         opt = LARC(opt, trust_coefficient=0.001, clip=False)
         criterion = nn.CrossEntropyLoss().to(self.device)
+        early_stopper = EarlyStopping(patience=15, restore_best=True)
 
         # Dataloader, distributed if world_size > 1
-        data_loader = create_lin_eval_dataloader(train_z, train_y, batch_size)
+        train_loader = create_lin_eval_dataloader(train_z, train_y, batch_size)
+        val_loader = create_lin_eval_dataloader(val_z, val_y, batch_size)
 
         if self.verbose:
-            print(f"\nLinear Eval - params: lr={lr:0.5f} | batch_size={batch_size}")
+            bs = batch_size * self.world_size
+            print(f"\nLinear Eval - params: lr={lr:0.5f} | batch_size={bs} | " +
+                  f"num_GPUs: {self.world_size}")
             print(f"Linear Eval - Training {epochs} epochs.")
-            pbar = pkbar.Kbar(target=epochs * len(data_loader))  # Progress bar
+            pbar = pkbar.Kbar(target=epochs)  # Progress bar
 
         # Train N epochs
         for epoch in range(epochs):
             # Random permutation of data inidces for the batch
-            hits = 0
-            total = 0
-
-            self.adjust_learning_rate(opt, lr, epoch, epochs)
 
             if self.world_size > 1:
-                data_loader.sampler.set_epoch(epoch)
+                train_loader.sampler.set_epoch(epoch)
 
-            for z, y in data_loader:
+            train_loss = torch.zeros(1).to(self.device)
+            train_hits = torch.zeros(1).to(self.device)
+            train_total = torch.zeros(1).to(self.device)
+            val_loss = torch.zeros(1).to(self.device)
+            val_hits = torch.zeros(1).to(self.device)
+            val_total = torch.zeros(1).to(self.device)
+
+            classifier.train()
+            for z, y in train_loader:
                 opt.zero_grad()
                 # Prepare data
                 z = z.to(self.device)
@@ -159,23 +179,59 @@ class Evaluator:
                 y_hat = classifier(z)
                 loss = criterion(y_hat, y)
 
-                # Acc data
-                hits += (y_hat.argmax(dim=1) == y).sum()
-                total += len(y)
+                train_hits += (y_hat.argmax(dim=1) == y).sum()
+                train_total += len(y)
+                train_loss += loss
 
                 # Backprop
                 loss.backward()
                 opt.step()
 
-                if self.verbose:
-                    acc = (y_hat.argmax(dim=1) == y).sum() / len(y)
-                    pbar.add(1, values=[('loss', loss.item()), ("acc", acc)])
+            classifier.eval()
+
+            for z, y in val_loader:
+                z = z.to(self.device)
+                y = y.to(self.device)
+
+                with torch.no_grad():
+                    y_hat = classifier(z)
+
+                val_hits += (y_hat.argmax(dim=1) == y).sum()
+                val_total += len(y)
+
+                loss = criterion(y_hat, y)
+                val_loss += loss
+
+            train_hits = AllGather.apply(train_hits).sum()
+            train_total = AllGather.apply(train_total).sum()
+            train_loss = AllReduce.apply(train_loss / len(train_loader))
+            train_acc = train_hits / train_total
+
+            val_hits = AllGather.apply(val_hits).sum()
+            val_total = AllGather.apply(val_total).sum()
+            val_loss = AllReduce.apply(val_loss / len(val_loader))
+            val_acc = val_hits / val_total
+
+            scheduler.step(val_loss)
+            should_stop = early_stopper(val_loss, classifier)
+
+            if self.verbose:
+                pbar_state = epochs if should_stop else epoch
+                pbar.update(pbar_state,
+                            values=[('train_loss', train_loss), ("train_acc", train_acc),
+                                    ('val_loss', val_loss), ("val_acc", val_acc)])
+
+            if should_stop:
+                break
 
         if self.verbose:
             print(f"Linear Eval - Evaluating.")
             pbar = pkbar.Kbar(target=len(self.val_loader))
 
+        classifier = early_stopper.best_model
+
         # Evaluate once
+        classifier.eval()
         hits = torch.zeros(1).to(self.device)
         total = torch.zeros(1).to(self.device)
         for x, y in self.val_loader:
@@ -219,7 +275,12 @@ class Evaluator:
             results[:, start:end] = sub_result
         return results.cpu()
 
-    def knn(self, train_z: torch.Tensor, train_y: torch.Tensor, ks: list) -> torch.Tensor:
+    def knn(self,
+            train_z: torch.Tensor,
+            train_y: torch.Tensor,
+            val_z: torch.Tensor,
+            val_y: torch.Tensor,
+            ks: list) -> torch.Tensor:
 
         if isinstance(ks, int):
             ks = [ks]
@@ -243,19 +304,21 @@ class Evaluator:
         total = torch.zeros(1).to(self.device)  # total number of data, length
         largest_k = max(ks)  # largest k value out of all
         n_hits = torch.zeros(1, len(ks)).to(self.device)  # Number of hits for each k
-        train_y = train_y.repeat(self.batch_size).view(self.batch_size, -1)  # train labels
+        train_y = train_y.repeat(500).view(500, -1)  # train labels
+
+        val_loader = create_lin_eval_dataloader(val_z, val_y, batch_size=500)
 
         if self.verbose:
             print("\nKNN-evaluation")
-            pbar = pkbar.Kbar(target=len(self.val_loader))
+            pbar = pkbar.Kbar(target=len(val_loader))
 
         # Get knn prediction for each batch
-        for x, y in self.val_loader:
+        for z, y in val_loader:
+
             with torch.no_grad():
                 # Current batch's embeddings and labels
-                x = x.to(self.device)
                 y = y.cpu()
-                z = F.normalize(self.model(x))
+                z = F.normalize(z.to(self.device))
 
             # This batch's accuracy (for logging purpose)
             batch_hits = torch.zeros(len(ks)).to(self.device)
