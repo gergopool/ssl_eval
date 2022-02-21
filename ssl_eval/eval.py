@@ -110,8 +110,7 @@ class Evaluator:
                     val_y: torch.Tensor,
                     epochs: int = 100,
                     batch_size: int = 256,
-                    lr: float = 0.1,
-                    scale_lr=True) -> torch.Tensor:
+                    lr: float = 0.1) -> torch.Tensor:
 
         # Define linear classifier
         n_classes = int(val_y.max() + 1)
@@ -126,9 +125,6 @@ class Evaluator:
             classifier = nn.parallel.DistributedDataParallel(classifier,
                                                              device_ids=[self.device],
                                                              output_device=self.device)
-
-        if scale_lr:
-            lr = self.world_size * batch_size / 256 * lr
 
         # Remember original trianing mode
         was_training = self.model.training
