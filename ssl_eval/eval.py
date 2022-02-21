@@ -4,6 +4,7 @@ from torch import nn
 from typing import Tuple
 import pkbar
 from collections import OrderedDict
+from functools import cached_property
 
 from .distributed import AllGather, AllReduce, get_world_size_n_rank
 from .data import get_loaders_by_name, create_lin_eval_dataloader
@@ -15,15 +16,8 @@ __all__ = ['Evaluator']
 
 class Evaluator:
 
-    def __init__(self,
-                 model: nn.Module,
-                 cnn_dim: int,
-                 dataset: str,
-                 root: str,
-                 batch_size=256,
-                 verbose=True):
+    def __init__(self, model: nn.Module, dataset: str, root: str, batch_size=256, verbose=True):
         self.model = model
-        self.cnn_dim = cnn_dim
         self.dataset = dataset
         self.root = root
         self.batch_size = batch_size
@@ -35,6 +29,13 @@ class Evaluator:
     @property
     def device(self):
         return next(self.model.parameters()).device
+
+    @cached_property
+    def cnn_dim(self):
+        shape = (3, 244, 244) if self.dataset == 'imagenet' else (3, 32, 32)
+        fake_input = torch.zeros(1, *shape).to(self.device)
+        x = self.model(fake_input)
+        return len(x[0])
 
     def reset_data_loaders(self, n_views: int = 1):
 
