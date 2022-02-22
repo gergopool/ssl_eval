@@ -16,7 +16,12 @@ __all__ = ['Evaluator']
 
 class Evaluator:
 
-    def __init__(self, model: nn.Module, dataset: str, root: str, batch_size=256, verbose=True):
+    def __init__(self,
+                 model: nn.Module,
+                 dataset: str,
+                 root: str,
+                 batch_size=256,
+                 verbose=True):
         self.model = model
         self.dataset = dataset
         self.root = root
@@ -45,7 +50,9 @@ class Evaluator:
                                            n_views=n_views)
         self.train_loader, self.val_loader = data_loaders
 
-    def generate_embeddings(self, n_views: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
+    def generate_embeddings(self,
+                            n_views: int = 1
+                           ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         self.reset_data_loaders(n_views)
 
@@ -116,15 +123,15 @@ class Evaluator:
         n_classes = int(val_y.max() + 1)
         classifier = nn.Sequential(
             OrderedDict([('bn', nn.BatchNorm1d(self.cnn_dim, affine=False)),
-                         ('fc', nn.Linear(self.cnn_dim, n_classes))])).to(self.device)
+                         ('fc', nn.Linear(self.cnn_dim,
+                                          n_classes))])).to(self.device)
 
         classifier.fc.weight.data.normal_(mean=0.0, std=0.01)
         classifier.fc.bias.data.zero_()
         if self.world_size > 1:
             classifier = nn.SyncBatchNorm.convert_sync_batchnorm(classifier)
-            classifier = nn.parallel.DistributedDataParallel(classifier,
-                                                             device_ids=[self.device],
-                                                             output_device=self.device)
+            classifier = nn.parallel.DistributedDataParallel(
+                classifier, device_ids=[self.device], output_device=self.device)
 
         # Remember original trianing mode
         was_training = self.model.training
@@ -135,7 +142,9 @@ class Evaluator:
 
         # Optimizer and loss
         opt = torch.optim.SGD(classifier.parameters(), lr=lr, momentum=0.9)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=5, min_lr=lr / 100.)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt,
+                                                               patience=5,
+                                                               min_lr=lr / 100.)
         opt = LARC(opt, trust_coefficient=0.001, clip=False)
         criterion = nn.CrossEntropyLoss().to(self.device)
         early_stopper = EarlyStopping(patience=15, restore_best=True)
@@ -215,8 +224,10 @@ class Evaluator:
             if self.verbose:
                 pbar_state = epochs if should_stop else epoch
                 pbar.update(pbar_state,
-                            values=[('train_loss', train_loss), ("train_acc", train_acc),
-                                    ('val_loss', val_loss), ("val_acc", val_acc)])
+                            values=[('train_loss', train_loss),
+                                    ("train_acc", train_acc),
+                                    ('val_loss', val_loss),
+                                    ("val_acc", val_acc)])
 
             if should_stop:
                 break
@@ -283,7 +294,8 @@ class Evaluator:
             ks = [ks]
 
         if not isinstance(ks, list):
-            raise TypeError(f"Value k must be either a list or int, not {type(ks)}")
+            raise TypeError(
+                f"Value k must be either a list or int, not {type(ks)}")
 
         # Ensure all k values are int
         ks = [int(k) for k in ks]
@@ -300,7 +312,8 @@ class Evaluator:
         # Prepare variables
         total = torch.zeros(1).to(self.device)  # total number of data, length
         largest_k = max(ks)  # largest k value out of all
-        n_hits = torch.zeros(1, len(ks)).to(self.device)  # Number of hits for each k
+        n_hits = torch.zeros(1, len(ks)).to(
+            self.device)  # Number of hits for each k
         train_y = train_y.repeat(500).view(500, -1)  # train labels
 
         val_loader = create_lin_eval_dataloader(val_z, val_y, batch_size=500)
