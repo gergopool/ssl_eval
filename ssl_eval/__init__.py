@@ -1,1 +1,1 @@
-from .eval import Evaluator
+from .offline_eval import OfflineEvaluator as Evaluator

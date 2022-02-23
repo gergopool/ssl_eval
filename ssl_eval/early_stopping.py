@@ -1,19 +1,31 @@
+from torch import nn
 from copy import deepcopy
 
 
 class EarlyStopping:
-    """Early stops the training if validation loss doesn't improve after a given patience."""
+    """EarlyStopping
+    Early stops the training if validation loss doesn't improve after a given patience.
 
-    def __init__(self, patience=5, delta=0, restore_best=True):
+    Parameters
+    ----------
+    patience : int, optional
+        Number of epochs to wait without improvement, by default 15
+    delta : int, optional
+        A difference to the best value which makes the new best value an improvement, by default 0
+    """
+
+    def __init__(self, patience: int = 15, delta: int = 0):
         self.patience = patience
         self.delta = delta
-        self.restore_best = restore_best
+
+        # Counting how many times we could not improve by a delta differnce
         self.counter = 0
+
+        # Best values
         self.best_loss = None
         self.best_model = None
-        self.best_model
 
-    def __call__(self, val_loss, model):
+    def __call__(self, val_loss: float, model: nn.Module) -> bool:
 
         # First run
         if self.best_loss is None:
