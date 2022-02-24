@@ -251,7 +251,7 @@ class LinearEvaluator:
         for z, y in data_laoder:
 
             # Calculate y_hat
-            z = z.to(self.device)
+            z = z.to(self.device).float()
             y = y.to(self.device)
             y_hat = self.classifier(z)
 

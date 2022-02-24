@@ -122,13 +122,13 @@ class EmbGenerator:
 
                 # Save batch_size amount of embeddings of n views
                 # z.shape == batch_size x cnn_dim x n_views
-                z = torch.zeros(len(y), self.cnn_dim, len(x_views)).to(self.device)
+                z = torch.zeros(len(y), self.cnn_dim, len(x_views)).half().to(self.device)
                 with torch.cuda.amp.autocast():
                     for j, x in enumerate(x_views):
                         z[:, :, j] = self.model(x.to(self.device))
 
                 # Collect embeddings from all GPU and save to CPU
-                Z.append(AllGather.apply(z).float().cpu())
+                Z.append(AllGather.apply(z).cpu())
                 Y.append(AllGather.apply(y).cpu())
 
                 # Step progress progress bar

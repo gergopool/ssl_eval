@@ -149,7 +149,7 @@ class KNNEvaluator:
         """
 
         # Normalize
-        small = F.normalize(small.to(self.device), dim=1)
+        small = F.normalize(small.to(self.device), dim=1).half()
 
         # This is an arbitrary batch size that surely first onto
         # the gpu even if the representation's dimension is large (e.g. 8192)
@@ -171,7 +171,7 @@ class KNNEvaluator:
             # Store distances
             results[:, start:end] = sub_result
 
-        return results.cpu()
+        return results.cpu().float()
 
     def _correct_ks(self, ks: Union[list, int]) -> List[int]:
         """_correct_ks

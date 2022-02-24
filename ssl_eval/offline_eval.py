@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import List, Union
+from typing import List, Union, Tuple
 from functools import cached_property
 
 from .generator import EmbGenerator
@@ -44,10 +44,19 @@ class OfflineEvaluator:
         self.embs = None
         self.verbose = verbose
 
+        self.embs = [None, None, None, None]
+
     @property
     def device(self):
         """Device of encoder model"""
         return next(self.model.parameters()).device
+
+    @property
+    def any_embs_none(self):
+        for emb in self.embs:
+            if emb is None:
+                return True
+        return False
 
     @cached_property
     def cnn_dim(self):
@@ -60,19 +69,29 @@ class OfflineEvaluator:
     @cached_property
     def n_classes(self):
         """Number of classes of this dataset"""
-        if self.dataset == "imagenet":
-            return 1000
-        elif self.dataset == "cifar10":
-            return 10
-        elif self.dataset == "cifa100":
-            return 100
+        options = {"imagenet": 1000, "cifar10": 10, "cifar100": 100}
+        if self.dataset in options:
+            return options[self.dataset]
         else:
             raise ValueError(f"Unknown dataset: {self.dataset}")
 
-    def generate_embeddings(self):
+    def generate_embeddings(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generatre train and validation embeddings"""
-        self.embs = self.emb_generator()
-        return self.embs
+        train_embs = self.generate_train_embeddings()
+        val_embs = self.generate_val_embeddings()
+        return *train_embs, *val_embs
+
+    def generate_train_embeddings(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        x,y = self.emb_generator.get_train_embs()
+        self.embs[0] = x
+        self.embs[1] = y
+        return x, y
+
+    def generate_val_embeddings(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        x,y = self.emb_generator.get_val_embs()
+        self.embs[2] = x
+        self.embs[3] = y
+        return x, y
 
     def linear_eval(self,
                     embs: Union[None, List[torch.Tensor]] = None,
@@ -109,8 +128,8 @@ class OfflineEvaluator:
             If no embeddings defined in either way.
         """
 
-        if embs is None and self.embs is None:
-            raise ValueError(f"No embeddings defined.")
+        if embs is None and self.any_embs_none:
+            raise ValueError(f"Some embeddings are not defined.")
         elif embs is None:
             embs = self.embs
 
@@ -146,11 +165,11 @@ class OfflineEvaluator:
         ValueError
             If no embeddings defined in either way.
         """
-        if embs is None and self.embs is None:
-            raise ValueError(f"No embeddings defined.")
+        if embs is None and self.any_embs_none:
+            raise ValueError(f"Some embeddings are not defined.")
         elif embs is None:
             embs = self.embs
-            
+
         evaluator = KNNEvaluator(self.device, self.verbose)
         accuracies = evaluator(*embs, k)
         return accuracies
