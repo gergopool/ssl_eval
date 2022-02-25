@@ -7,11 +7,11 @@ from .generator import EmbGenerator
 from .lin_eval import LinearEvaluator
 from .knn import KNNEvaluator
 
-__all__ = ['OfflineEvaluator']
+__all__ = ['Evaluator']
 
 
-class OfflineEvaluator:
-    """OfflineEvaluator
+class Evaluator:
+    """Evaluator
     Evaluator that handles evaluation after a training epochs.
 
     Parameters

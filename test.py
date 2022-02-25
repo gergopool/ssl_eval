@@ -2,7 +2,7 @@
 '''Train CIFAR10 with PyTorch.'''
 import os
 
-os.environ['CUDA_VISIBLE_DEVICES'] = "2"
+os.environ['CUDA_VISIBLE_DEVICES'] = "7"
 
 import torch
 import torch.nn as nn
@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 
 import argparse
 
-from ssl_eval import OfflineEvaluator, OnlineEvaluator
+from ssl_eval import Evaluator, StoreEvaluator
 
 
 class BasicBlock(nn.Module):
@@ -174,8 +174,11 @@ net = net.to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
-onl_evaluator = OnlineEvaluator(net.encoder, "cifar10", "/data/shared/data/cifar10", storage_size=3)
-off_evaluator = OfflineEvaluator(net.encoder, "cifar10", "/data/shared/data/cifar10", n_views=3)
+store_evaluator = StoreEvaluator(net.encoder,
+                                 "cifar10",
+                                 "/data/shared/data/cifar10",
+                                 storage_size=3)
+evaluator = Evaluator(net.encoder, "cifar10", "/data/shared/data/cifar10", n_views=3)
 
 
 # Training
@@ -192,7 +195,7 @@ def train(epoch):
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
-        onl_evaluator.update(z, targets)
+        store_evaluator.update(z, targets)
 
         train_loss += loss.item()
         _, predicted = outputs.max(1)
@@ -202,17 +205,15 @@ def train(epoch):
 
 def test(epoch):
 
-    print("Offline")
-    embs = off_evaluator.generate_embeddings()
-    off_evaluator.knn(embs, k=[1, 5, 20])
-    off_evaluator.linear_eval(embs, epochs=100, batch_size=512, lr=0.2)
-
     print("Online")
-    train_x, train_y, val_x, val_y = embs
-    train_x, train_y = onl_evaluator.generate_embeddings()
-    embs = train_x, train_y, val_x, val_y
-    onl_evaluator.knn(embs, k=[1, 5, 20])
-    onl_evaluator.linear_eval(embs, epochs=100, batch_size=512, lr=0.2)
+    store_evaluator.generate_embeddings()
+    store_evaluator.knn(k=[1, 5, 20])
+    store_evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
+
+    print("Offline")
+    evaluator.generate_embeddings()
+    evaluator.knn(k=[1, 5, 20])
+    evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
 
 
 for epoch in range(2):

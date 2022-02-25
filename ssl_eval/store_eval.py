@@ -2,11 +2,11 @@ import torch
 from functools import cached_property
 from typing import Tuple
 
-from .offline_eval import OfflineEvaluator
+from .eval import Evaluator
 from .emb_memory_bank import EmbMemoryBank
 
 
-class OnlineEvaluator(OfflineEvaluator):
+class StoreEvaluator(Evaluator):
     """OnlineEvaluator
     Similar to OfflineEvaluator, but this one does not generate training
     samples. Instead, while you train your neural network it saves
@@ -21,7 +21,7 @@ class OnlineEvaluator(OfflineEvaluator):
     """
 
     def __init__(self, *args, storage_size: int = 1., **kwargs):
-        super(OnlineEvaluator, self).__init__(*args, *kwargs)
+        super(StoreEvaluator, self).__init__(*args, *kwargs)
         self.memory_bank = EmbMemoryBank(self.model,
                                          self.cnn_dim,
                                          storage_size * self.n_train_samples)
