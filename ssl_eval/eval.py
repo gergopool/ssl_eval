@@ -60,10 +60,12 @@ class Evaluator:
 
     @cached_property
     def cnn_dim(self):
-        """Output dimension of encoder"""
+        was_training = self.model.training
+        self.model.eval()
         shape = (3, 244, 244) if self.dataset == 'imagenet' else (3, 32, 32)
         fake_input = torch.zeros(1, *shape).to(self.device)
         x = self.model(fake_input)
+        self.model.train(was_training)
         return len(x[0])
 
     @cached_property
