@@ -84,16 +84,16 @@ class Evaluator:
         return *train_embs, *val_embs
 
     def generate_train_embeddings(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        x,y = self.emb_generator.get_train_embs()
-        self.embs[0] = x
+        z,y = self.emb_generator.get_train_embs()
+        self.embs[0] = z
         self.embs[1] = y
-        return x, y
+        return z, y
 
     def generate_val_embeddings(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        x,y = self.emb_generator.get_val_embs()
-        self.embs[2] = x
+        z,y = self.emb_generator.get_val_embs()
+        self.embs[2] = z
         self.embs[3] = y
-        return x, y
+        return z, y
 
     def linear_eval(self,
                     embs: Union[None, List[torch.Tensor]] = None,

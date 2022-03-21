@@ -45,7 +45,7 @@ class LinearEvaluator:
                  n_classes: int,
                  device: torch.device,
                  verbose: bool = True,
-                 warm_start: bool = True):
+                 warm_start: bool = False):
         self.cnn_dim = cnn_dim
         self.n_classes = n_classes
         self.device = device
