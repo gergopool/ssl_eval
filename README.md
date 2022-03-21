@@ -76,7 +76,7 @@ top1_accs = evaluator.knn([1,5,20])
 | Arg | Description |
 | --- | ----------- |
 | embs | Optional. Tuple of (z,y) tensors described above. If None, it will use the ones generated the last time. |
-| ks | The K values we desire to run the KNN with. |
+| ks | Optional. The K values we desire to run the KNN with. Can be either integer or list of integers. 1 by default. |
 
 | Return value | Description |
 | --- | ----------- |
