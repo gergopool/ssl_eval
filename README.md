@@ -2,11 +2,10 @@
 
 ![Python](https://img.shields.io/badge/python-3.8-blue)
 ![PyTorch](https://img.shields.io/badge/framework-pytorch-orange)
-![version](https://img.shields.io/badge/version-beta-yellowgreen)
 
 This modul is a handful tool to evaluate your self-supervised algorithm quickly with either linear evaluation or knn. The linear evaluation won't give you the official accuracies that your network can achieve, however, it gives a very good lower bound in a couple of minutes, instead of hours.
 
-To give you an example, the linear evaluation of SimSiam's network achieves a 68% accuracy in 5 hours, while this code achieves 66% in 5 minutes with the same setup.
+To give you an example, the linear evaluation of SimSiam's network achieves a 68% accuracy in 5 hours, while this code achieves 67% in 10 minutes with the same setup.
 
 ## :question: How
 
@@ -23,46 +22,46 @@ This modul is generally made for researchers working with Imagenet, therefore, t
 First, build your encoder model in either a single-gpu or a multi-gpu setup. Then, 
 create an evalautor instance by
 ```python
-evaluator = Evaluator(model, cnn_dim=2048, dataset="imagenet", root='/data/imagenet/', batch_size=256)
+evaluator = Evaluator(model, dataset="imagenet", root='/data/imagenet/', n_views=2, batch_size=256)
 ```
 
 | Arg | Description |
 | --- | ----------- |
 | model | The encoder model that maps the input image to a cnn_dim representation. The model doesn't need to be freezed or be in eval mode. |
-| cnn_dim | The dimension of the representation. |
 | dataset | Name of the dataset. Choose from `'imagenet', 'cifar10', 'cifar100'` |
-| root | Path to your dataset. |
-| batch_size | The batch size used for iterating over images. |
+| root | Path to your dataset |
+| n_views | Optional. Number of augmentations, number of views you desire to get from each image example. Default is 1. |
+| batch_size | Optional. The batch size used for iterating over images when generating images, per gpu. Default is 256. |
+| verbose | Optional. Verbosity. Default is True. |
 
  ### Generate embeddings
 
 ```python
-z, y = evaluator.generate_embeddings(n_views=2)
+train_z, train_y, val_z, val_y = evaluator.generate_embeddings()
+embs = (train_z, train_y, val_z, val_y)
 ```
-| Arg | Description |
-| --- | ----------- |
-| n_views | number of augmentations, number of views you desire to get from each image example |
 
 | Return value | Description |
 | --- | ----------- |
-| z | NxDxV tensor, where N is the number of samples, D is the cnn_dim and V is the number of views. |
-| y | Tensor of labels with length of N |
+| train_z | NxDxV tensor, where N is the number of samples, D is the cnn_dim and V is the number of views. Note that these are half precision embeddings. |
+| train_y | Tensor of labels with length of N |
+| val_z | Same as train_z, but with validation set. |
+| val_y | Same as train_y, but with validation set. |
 
 
 ### Run linear evaluation
 ```python
-top1_acc = evaluator.linear_eval(z, y, epochs=5, batch_size=4096, lr=1.6, verbose=True)
+top1_acc = evaluator.linear_eval(batch_size=256)
 ```
-This is a recommended setup for Imagenet.
+Runs a linear evalaution on the generated embeddings. It uses decreases the learning rate when platues and stop with early stopping if necessary.
 
 | Arg | Description |
 | --- | ----------- |
-| z | NxDxV tensor, where N is the number of samples, D is the cnn_dim and V is the number of views. |
-| y | Tensor of labels with length of N |
-| epochs | Number of epochs to train. 10 by default. |
-| batch_size | Batch sized used for iterating over the embeddings. 256 by default. |
-| lr | Learning rate. 1 by default. |
-| verbose | Allowing rank0 process to print results to the standard ouput. Default is True. |
+| embs | Optional. Tuple of (z,y) tensors described above. If None, it will use the ones generated the last time. |
+| epochs | Optional. Maximum number of epochs to train (it can still stop with early stopping). Default is 100. |
+| batch_size | Optional. Batch size used for iterating over the embeddings. Default is 256. |
+| lr | Optional. Learning rate. 0.1 by default. |
+| warm_start | Optional. If True, it loads the weights from the last training. Default is False. |
 
 | Return value | Description |
 | --- | ----------- |
@@ -72,12 +71,11 @@ This is a recommended setup for Imagenet.
 
 ### KNN
 ```python
-top1_accs = evaluator.knn(z, y, [1,5,20])
+top1_accs = evaluator.knn([1,5,20])
 ```
 | Arg | Description |
 | --- | ----------- |
-| z | NxDxV tensor, where N is the number of samples, D is the cnn_dim and V is the number of views. |
-| y | Tensor of labels with length of N |
+| embs | Optional. Tuple of (z,y) tensors described above. If None, it will use the ones generated the last time. |
 | ks | The K values we desire to run the KNN with. |
 
 | Return value | Description |

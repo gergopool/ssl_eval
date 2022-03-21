@@ -100,7 +100,7 @@ class Evaluator:
                     epochs: int = 100,
                     batch_size: int = 256,
                     lr: float = 0.1,
-                    warm_start: bool = True) -> torch.Tensor:
+                    warm_start: bool = False) -> torch.Tensor:
         """linear_eval
         Runs a linear evaluation on pre-generated dataset.
 
@@ -117,7 +117,7 @@ class Evaluator:
             Learning rate for LARC, by default 0.1
         warm_start : bool, optional
             If True and there has been a previous training, it loads the weights
-        from the last training. By default True
+        from the last training. By default False
 
         Returns
         -------
