@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 
 import argparse
 
-from ssl_eval.eval import Evaluator
+from ssl_eval import Evaluator, StoreEvaluator
 
 
 class BasicBlock(nn.Module):
@@ -126,7 +126,7 @@ class ResNet18(nn.Module):
 
     def forward(self, x):
         z = self.encoder(x)
-        return self.classifier(z)
+        return z, self.classifier(z)
 
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
@@ -174,6 +174,12 @@ net = net.to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
+store_evaluator = StoreEvaluator(net.encoder,
+                                 "cifar10",
+                                 "/data/shared/data/cifar10",
+                                 storage_size=3)
+evaluator = Evaluator(net.encoder, "cifar10", "/data/shared/data/cifar10", n_views=3)
+
 
 # Training
 def train(epoch):
@@ -185,10 +191,11 @@ def train(epoch):
     for inputs, targets in trainloader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = net(inputs)
+        z, outputs = net(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
+        store_evaluator.update(z, targets)
 
         train_loss += loss.item()
         _, predicted = outputs.max(1)
@@ -197,11 +204,22 @@ def train(epoch):
 
 
 def test(epoch):
-    evaluator = Evaluator(net.encoder, "cifar10", "/data/shared/data/cifar10")
-    embs = evaluator.generate_embeddings(n_views=3)
-    evaluator.knn(*embs, [1, 5, 20])
-    evaluator.linear_eval(*embs, batch_size=512, lr=0.2)
 
+    print("Online")
+    store_evaluator.generate_embeddings()
+    store_evaluator.knn(k=[1, 5, 20])
+    store_evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
+
+    print("Offline")
+    evaluator.generate_embeddings()
+    evaluator.knn(k=[1, 5, 20])
+    evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
+
+
+for epoch in range(2):
+    train(epoch)
+
+test(epoch)
 
 for epoch in range(2):
     train(epoch)
