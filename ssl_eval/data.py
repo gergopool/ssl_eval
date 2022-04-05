@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms, datasets
 from typing import List, Tuple, Callable
+import multiprocessing as mp
 
 from .distributed import get_world_size_n_rank
 
@@ -85,7 +86,7 @@ def create_lin_eval_dataloader(z: torch.Tensor,
 
     # Create data loaders
     data_loader = DataLoader(emb_dataset,
-                             num_workers=8,
+                             num_workers=min(32, mp.cpu_count()),
                              pin_memory=True,
                              persistent_workers=True,
                              batch_size=batch_size,
