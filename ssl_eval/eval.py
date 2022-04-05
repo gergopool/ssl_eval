@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import List, Union, Tuple
+from typing import List, Union, Tuple, Callable
 from functools import cached_property
 
 from .generator import EmbGenerator
@@ -37,10 +37,13 @@ class Evaluator:
                  root: str,
                  n_views: int = 1,
                  batch_size: int = 256,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 train_transform: Callable = None,
+                 val_transform: Callable = None):
         self.model = model
         self.dataset = dataset
-        self.emb_generator = EmbGenerator(model, dataset, root, n_views, batch_size, verbose)
+        self.emb_generator = EmbGenerator(model,dataset, root, n_views, batch_size,
+                                          verbose, train_transform, val_transform)
         self.embs = None
         self.verbose = verbose
 

@@ -155,7 +155,11 @@ def _get_loaders(train_dataset: Dataset,
     return train_loader, val_loader
 
 
-def _cifar10(root: str, batch_size: int = 256, n_views: int = 1) -> Tuple[DataLoader, DataLoader]:
+def _cifar10(root: str,
+             batch_size: int = 256,
+             n_views: int = 1,
+             train_transform: Callable = None,
+             val_transform: Callable = None) -> Tuple[DataLoader, DataLoader]:
 
     trans = transforms.Compose([
         transforms.Resize(32),
@@ -163,16 +167,23 @@ def _cifar10(root: str, batch_size: int = 256, n_views: int = 1) -> Tuple[DataLo
         transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
     ])
 
-    train_trans = _NViewTransform(trans, trans, n_views=n_views)
-    val_trans = _NViewTransform(trans, trans, n_views=1)
+    train_transform = train_transform if train_transform else trans
+    val_transform = val_transform if val_transform else trans
 
-    train_dataset = datasets.CIFAR10(root, transform=train_trans, train=True)
-    val_dataset = datasets.CIFAR10(root, transform=val_trans, train=False)
+    train_transform = _NViewTransform(trans, train_transform, n_views=n_views)
+    val_transform = _NViewTransform(trans, val_transform, n_views=1)
+
+    train_dataset = datasets.CIFAR10(root, transform=train_transform, train=True)
+    val_dataset = datasets.CIFAR10(root, transform=val_transform, train=False)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 
 
-def _cifar100(root: str, batch_size: int = 256, n_views: int = 1) -> Tuple[DataLoader, DataLoader]:
+def _cifar100(root: str,
+              batch_size: int = 256,
+              n_views: int = 1,
+              train_transform: Callable = None,
+              val_transform: Callable = None) -> Tuple[DataLoader, DataLoader]:
 
     trans = transforms.Compose([
         transforms.Resize(32),
@@ -180,39 +191,48 @@ def _cifar100(root: str, batch_size: int = 256, n_views: int = 1) -> Tuple[DataL
         transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
     ])
 
-    train_trans = _NViewTransform(trans, trans, n_views=n_views)
-    val_trans = _NViewTransform(trans, trans, n_views=1)
+    train_transform = train_transform if train_transform else trans
+    val_transform = val_transform if val_transform else trans
 
-    train_dataset = datasets.CIFAR100(root, transform=train_trans, train=True)
-    val_dataset = datasets.CIFAR100(root, transform=val_trans, train=False)
+    train_transform = _NViewTransform(trans, train_transform, n_views=n_views)
+    val_transform = _NViewTransform(trans, val_transform, n_views=1)
+
+    train_dataset = datasets.CIFAR100(root, transform=train_transform, train=True)
+    val_dataset = datasets.CIFAR100(root, transform=val_transform, train=False)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 
 
-def _imagenet(root: str, batch_size: int = 256, n_views: int = 1) -> Tuple[DataLoader, DataLoader]:
+def _imagenet(root: str,
+              batch_size: int = 256,
+              n_views: int = 1,
+              train_transform: Callable = None,
+              val_transform: Callable = None) -> Tuple[DataLoader, DataLoader]:
 
     # Different data roots for train and val
     train_root = os.path.join(root, 'train')
     val_root = os.path.join(root, 'val')
 
-    train_aug = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+    if not train_transform:
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
 
-    val_aug = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+    if not val_transform:
+        val_transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
 
-    train_trans = _NViewTransform(train_aug, val_aug, n_views=n_views)
-    val_trans = _NViewTransform(train_aug, val_aug, n_views=1)
+    train_transform = _NViewTransform(train_transform, val_transform, n_views=n_views)
+    val_transform = _NViewTransform(train_transform, val_transform, n_views=1)
 
-    train_dataset = datasets.ImageFolder(train_root, train_trans)
-    val_dataset = datasets.ImageFolder(val_root, val_trans)
+    train_dataset = datasets.ImageFolder(train_root, train_transform)
+    val_dataset = datasets.ImageFolder(val_root, val_transform)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 
@@ -225,23 +245,23 @@ class _NViewTransform:
 
     Parameters
     ----------
-    train_trans : Callable
+    train_transform : Callable
         Train transformation.
-    val_trans : Callable
+    val_transform : Callable
         Validation transformation.
     n_views : int, optional
         Number of desired views. By default 1
     """
 
-    def __init__(self, train_trans: Callable, val_trans: Callable, n_views: int = 1):
-        self.train_trans = train_trans
-        self.val_trans = val_trans
+    def __init__(self, train_transform: Callable, val_transform: Callable, n_views: int = 1):
+        self.train_transform = train_transform
+        self.val_transform = val_transform
         self.n_views = n_views
 
     def __call__(self, x: torch.Tensor) -> List[torch.Tensor]:
-        out = [self.val_trans(x)]
+        out = [self.val_transform(x)]
         for _ in range(self.n_views - 1):
-            out.append(self.train_trans(x))
+            out.append(self.train_transform(x))
         return out
 
 
