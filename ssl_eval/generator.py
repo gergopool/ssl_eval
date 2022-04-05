@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from functools import cached_property
-from typing import Tuple
+from typing import Callable, Tuple
 
 from . import pkbar
 from .data import get_loaders_by_name
@@ -37,7 +37,9 @@ class EmbGenerator:
                  root : str,
                  n_views : int = 1,
                  batch_size: int = 256,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 train_transform: Callable = None,
+                 val_transform: Callable = None):
         self.model = model
         self.dataset = dataset
         self.root = root
@@ -49,7 +51,9 @@ class EmbGenerator:
         data_loaders = get_loaders_by_name(self.root,
                                            self.dataset,
                                            batch_size=self.batch_size,
-                                           n_views=n_views)
+                                           n_views=n_views,
+                                           train_transform=train_transform,
+                                           val_transform=val_transform)
         self.train_loader, self.val_loader = data_loaders
 
     @property
