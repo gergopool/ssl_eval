@@ -6,6 +6,7 @@ from functools import cached_property
 from .generator import EmbGenerator
 from .lin_eval import LinearEvaluator
 from .knn import KNNEvaluator
+from .snn import SNNEvaluator
 
 __all__ = ['Evaluator']
 
@@ -178,3 +179,43 @@ class Evaluator:
         evaluator = KNNEvaluator(self.device, self.verbose)
         accuracies = evaluator(*embs, k)
         return accuracies
+
+    def snn(self,
+            embs: Union[None, List[torch.Tensor]] = None,
+            tau :float = 0.1,
+            single_view: bool = True,
+            balance_labels: bool = False) -> torch.Tensor:
+        """knn
+        Runs snn evaluation on embeddings.
+
+        Parameters
+        ----------
+        embs : Union[None, List[torch.Tensor]], optional
+            The embeddings in form (train_z, train_y, val_z, val_y).
+            If not provided, it tries to reach the last generated ones. By default None
+        tau : float
+            Scale of embeddings before softmax.
+        single_view : bool
+            Use the first view only from the train set. Otherwise the different views
+            act as different data points
+        balance_labels : bool
+            If the train data is not balanced, balance the weights of votes.
+
+        Returns
+        -------
+        torch.Tensor
+            Top1 accuracy
+
+        Raises
+        ------
+        ValueError
+            If no embeddings defined in either way.
+        """
+        if embs is None and self.any_embs_none:
+            raise ValueError(f"Some embeddings are not defined.")
+        elif embs is None:
+            embs = self.embs
+
+        evaluator = SNNEvaluator(self.device, self.verbose, tau=tau)
+        accuracy = evaluator(*embs, single_view=single_view, balance_labels=balance_labels)
+        return accuracy

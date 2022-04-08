@@ -2,7 +2,7 @@
 '''Train CIFAR10 with PyTorch.'''
 import os
 
-os.environ['CUDA_VISIBLE_DEVICES'] = "7"
+os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
 import torch
 import torch.nn as nn
@@ -203,25 +203,28 @@ def train(epoch):
         correct += predicted.eq(targets).sum().item()
 
 
-def test(epoch):
+def test():
 
-    print("Online")
-    store_evaluator.generate_embeddings()
-    store_evaluator.knn(k=[1, 5, 20])
-    store_evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
+    # print("Online")
+    # store_evaluator.generate_embeddings()
+    # store_evaluator.snn()
+    # store_evaluator.snn(balance_labels=True)
+    # store_evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
 
     print("Offline")
     evaluator.generate_embeddings()
     evaluator.knn(k=[1, 5, 20])
-    evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
+    evaluator.snn()
+    evaluator.snn(balance_labels=True)
+    # evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
 
 
 for epoch in range(2):
     train(epoch)
 
-test(epoch)
+test()
 
-for epoch in range(2):
-    train(epoch)
+# for epoch in range(2):
+#     train(epoch)
 
-test(epoch)
+# test()

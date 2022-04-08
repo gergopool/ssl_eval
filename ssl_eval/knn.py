@@ -73,6 +73,7 @@ class KNNEvaluator:
 
         # Create extended labels
         train_y = train_y.repeat(500).view(500, -1)
+        train_y = train_y.to(self.device)
 
         # Data loader
         data_loader = create_lin_eval_dataloader(val_z, val_y, batch_size=500)
@@ -95,7 +96,7 @@ class KNNEvaluator:
             batch_hits = torch.zeros(len(ks)).to(self.device)
 
             # Distance matrix
-            dist = self._mm_splitwise_on_gpu(z, train_z)
+            dist = self._mm_splitwise_on_gpu(z, train_z).to(self.device)
 
             # Get closes labels
             closest_indices = dist.topk(largest_k, dim=1)[1]
@@ -104,7 +105,7 @@ class KNNEvaluator:
             # For each k get number of hits
             batch_hits = torch.zeros(len(ks)).to(self.device)
             for i, k in enumerate(ks):
-                preds = pred_labels[:, :k].mode(dim=1)[0]
+                preds = pred_labels[:, :k].mode(dim=1)[0].cpu()
                 batch_hits[i] = (preds == y).sum()
             acc_meter.update(batch_hits, n=len(y))
 
@@ -113,6 +114,8 @@ class KNNEvaluator:
                 accs = acc_meter.local_avg
                 update_values = [(f"k={k}", acc) for (k, acc) in zip(ks, accs)]
                 pbar.add(1, values=update_values)
+
+        train_y = train_y.cpu()
 
         # Get all accuracies
         final_accuracies = acc_meter.avg
@@ -171,7 +174,7 @@ class KNNEvaluator:
             # Store distances
             results[:, start:end] = sub_result
 
-        return results.cpu().float()
+        return results
 
     def _correct_ks(self, ks: Union[list, int]) -> List[int]:
         """_correct_ks

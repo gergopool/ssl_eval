@@ -1,5 +1,5 @@
 # Credits: facebookresearch
-
+import os
 import torch
 from torch import distributed as dist
 from typing import Tuple
@@ -24,6 +24,37 @@ def get_world_size_n_rank() -> Tuple[int, int]:
         return dist.get_world_size(), dist.get_rank()
     else:
         return 1, 0
+
+
+# Code credits:
+# https://github.com/facebookresearch/suncet/blob/main/src/utils.py
+def init_distributed(port=40011, rank_and_world_size=(None, None)):
+
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_world_size(), dist.get_rank()
+
+    rank, world_size = rank_and_world_size
+    os.environ['MASTER_ADDR'] = 'localhost'
+
+    if (rank is None) or (world_size is None):
+        try:
+            world_size = int(os.environ['SLURM_NTASKS'])
+            rank = int(os.environ['SLURM_PROCID'])
+            os.environ['MASTER_ADDR'] = os.environ['HOSTNAME']
+        except Exception:
+            print('WARNING: Distributed training not available')
+            world_size, rank = 1, 0
+            return world_size, rank
+
+    try:
+        # Open a random port
+        os.environ['MASTER_PORT'] = str(port)
+        dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
+    except Exception:
+        world_size, rank = 1, 0
+        print('WARNING: Distributed training not available')
+
+    return world_size, rank
 
 
 class AllGather(torch.autograd.Function):
