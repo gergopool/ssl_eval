@@ -14,6 +14,7 @@ setup(
     packages=find_packages(),
     package_dir={'ssl_eval': 'ssl_eval'},
     package_data={'ssl_eval': ['*.txt']},
+    scripts=['scripts/ssl_eval'],
     url='https://github.com/gergopool/ssl_eval',
     license='LICENSE',
     description='A plug & play evaluator for self-supervised image classification.',

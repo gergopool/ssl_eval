@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 # Credits: https://github.com/facebookresearch/simsiam/blob/main/main_lincls.py
 import argparse
 import random
@@ -20,12 +22,19 @@ def run_multi_gpu(model: torch.nn.Module,
                   method: Union[List[str], str] = "linear_eval",
                   devices: List[str] = ['0']):
 
+    # lowest_memory = 99999999999
+    # for str_device in devices:
+    #     int_device = int(str_device)
+    #     r = torch.cuda.memory_reserved(int_device)
+    #     a = torch.cuda.memory_allocated(int_device)
+    #     lowest_memory = min(r - a, lowest_memory)
+    # print(lowest_memory)
+    # return
+
     if seed:
         set_random_seed(seed)
-    torch.multiprocessing.set_start_method("spawn")
     num_gpus = len(devices)
     port = random.randint(0, 9999) + 40000  # random port
-    cudnn.benchmark = True
 
     if not isinstance(method, list):
         method = [method]
@@ -157,16 +166,48 @@ def _find_item_and_prefix(d, lookup_key):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='PyTorch ImageNet Eval Training')
-    parser.add_argument('model_path', type=str)
-    parser.add_argument('data_root', type=str)
-    parser.add_argument('-d', '--dataset', type=str, default='imagenet')
-    parser.add_argument('-a', '--arch', type=str, default='resnet50')
-    parser.add_argument('-n', '--n-views', type=int, default=3)
-    parser.add_argument('-b', '--batch-size', type=int, default=4096)
-    parser.add_argument('-s', '--seed', type=int, default=None)
-    parser.add_argument('--devices', type=str, nargs='+', default=['0'])
-    parser.add_argument('--method', type=str, nargs='+', default=['linear_eval', "knn", "snn"])
+    parser = argparse.ArgumentParser(description='Run inference on Imagenet, CIFAR10 or CIFAR100')
+    parser.add_argument('model_path', type=str, help='Path to your model')
+    parser.add_argument('data_root', type=str, help='Path to your data')
+    parser.add_argument(
+        '-d',
+        '--dataset',
+        type=str,
+        default='imagenet',
+        choices=['imagenet', 'cifar10', 'cifar100'],
+        help='Name of your dataset, see options.',
+    )
+    parser.add_argument('-a',
+                        '--arch',
+                        type=str,
+                        default='resnet50',
+                        help="Torchvision architecture your model use as backend")
+    parser.add_argument(
+        '-n',
+        '--n-views',
+        type=int,
+        default=3,
+        help=
+        "Number of views you want to generate from each sample. " + \
+        "Note that the more sample you make, the more RAM you need."
+    )
+    parser.add_argument('-b',
+                        '--batch-size',
+                        type=int,
+                        default=4096,
+                        help="Batch size. We recommend 512 per each 10GB GPU-RAM you have.")
+    parser.add_argument('-s', '--seed', type=int, default=None, help="Seed of run.")
+    parser.add_argument('--devices',
+                        type=str,
+                        nargs='+',
+                        default=['0'],
+                        help="CUDA devices to use.")
+    parser.add_argument('--method',
+                        type=str,
+                        nargs='+',
+                        default=['linear_eval', "knn", "snn"],
+                        choices=['linear_eval', "knn", "snn"],
+                        help="Methods to you wish to run.")
     args = parser.parse_args()
 
     state_dict = torch.load(args.model_path, map_location="cpu")
