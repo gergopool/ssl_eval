@@ -2,6 +2,7 @@
 
 # Credits: https://github.com/facebookresearch/simsiam/blob/main/main_lincls.py
 import argparse
+import os
 import random
 import torch
 import torch.backends.cudnn as cudnn
@@ -13,80 +14,62 @@ from typing import List, Union
 import ssl_eval
 
 
-def run_multi_gpu(model: torch.nn.Module,
-                  dataset: str,
-                  root: str,
-                  n_views: int = 1,
-                  batch_size: int = 4096,
-                  seed: int = None,
-                  method: Union[List[str], str] = "linear_eval",
-                  devices: List[str] = ['0']):
+def run_multi_gpu(args):
+    if args.devices:
+        str_devices = ','.join(args.devices)
+        os.environ['CUDA_VISIBLE_DEVICES'] = str_devices
+    num_gpus = torch.cuda.device_count()
 
-    # lowest_memory = 99999999999
-    # for str_device in devices:
-    #     int_device = int(str_device)
-    #     r = torch.cuda.memory_reserved(int_device)
-    #     a = torch.cuda.memory_allocated(int_device)
-    #     lowest_memory = min(r - a, lowest_memory)
-    # print(lowest_memory)
-    # return
-
-    if seed:
-        set_random_seed(seed)
-    num_gpus = len(devices)
+    if args.seed:
+        set_random_seed(args.seed)
     port = random.randint(0, 9999) + 40000  # random port
 
     if not isinstance(method, list):
         method = [method]
 
-    for m in method:
+    for m in args.method:
         if m not in ["linear_eval", "knn", "snn", ""]:
             raise print(f"WARNING: Method {m} is unknown and therefore will be ignored.")
 
-    result_dict = mp.Manager().dict() if len(devices) > 1 else {}
-    common_args = (model, port, root, dataset, n_views, batch_size, devices, method, result_dict)
-    if len(devices) > 1:
-        mp.spawn(process, nprocs=num_gpus, args=(num_gpus, *common_args))
+    result_dict = mp.Manager().dict() if num_gpus > 1 else {}
+    if len(num_gpus) > 1:
+        mp.spawn(process, nprocs=num_gpus, args=(num_gpus, args, result_dict))
     else:
-        process(0, 1, *common_args)
+        process(0, 1, args, result_dict)
 
     return result_dict
 
 
-def process(rank,
-            world_size,
-            model,
-            port,
-            data_root,
-            dataset,
-            n_views,
-            batch_size,
-            devices,
-            method,
-            results):
+def process(rank, world_size, args, results):
 
-    init_distributed_setup(world_size, rank, devices, port)
+    if torch.cuda.is_available():
+        device = torch.cuda.device(rank)
+        torch.cuda.set_device(device)
+
+    ssl_eval.distributed.init_distributed(args.port, rank_and_world_size=(rank, world_size))
     if world_size > 1:
+        print(f"Rank{rank} started succesfully.")
         torch.distributed.barrier()
 
-    torch.backends.cudnn.benchmark = True
-    model.cuda()
+    state_dict = torch.load(args.model_path, map_location=device)
+    model = get_model(state_dict, args.arch).cuda()
 
     evaluator = ssl_eval.Evaluator(model,
-                                   dataset,
-                                   data_root,
-                                   n_views=n_views,
-                                   batch_size=batch_size)
+                                   args.dataset,
+                                   args.data_root,
+                                   n_views=args.n_views,
+                                   batch_size=args.batch_size)
 
+    torch.backends.cudnn.benchmark = True
     embs = evaluator.generate_embeddings()
 
-    if "linear_eval" in method:
-        lr = batch_size / 256 * 0.1
-        acc = evaluator.linear_eval(embs, batch_size=batch_size, lr=lr)
+    if "linear_eval" in args.method:
+        lr = args.batch_size / 256 * 0.1
+        acc = evaluator.linear_eval(embs, batch_size=args.batch_size, lr=lr)
         if rank == 0:
             results['linear_eval'] = acc
 
-    if "knn" in method:
+    if "knn" in args.method:
         accs = evaluator.knn(embs, k=[1, 5, 20])
         if rank == 0:
             results['knn'] = {}
@@ -94,7 +77,7 @@ def process(rank,
             results['knn'][5] = accs[5]
             results['knn'][20] = accs[20]
 
-    if "snn" in method:
+    if "snn" in args.method:
         acc = evaluator.snn(embs)
         if rank == 0:
             results['snn'] = acc
@@ -111,16 +94,6 @@ def set_random_seed(seed):
           'which can slow down your training considerably! '
           'You may see unexpected behavior when restarting '
           'from checkpoints.')
-
-
-def init_distributed_setup(world_size, rank, devices, port):
-    if torch.cuda.is_available():
-        device = torch.cuda.device(int(devices[rank]))
-        torch.cuda.set_device(device)
-    ssl_eval.distributed.init_distributed(port, rank_and_world_size=(rank, world_size))
-    if rank == 0:
-        print("Use GPU: {} for training".format(devices))
-    return device
 
 
 def get_model(state_dict, arch='resnet50'):
@@ -210,14 +183,4 @@ if __name__ == '__main__':
                         help="Methods to you wish to run.")
     args = parser.parse_args()
 
-    state_dict = torch.load(args.model_path, map_location="cpu")
-    model = get_model(state_dict, args.arch)
-
-    run_multi_gpu(model,
-                  args.dataset,
-                  args.data_root,
-                  args.n_views,
-                  args.batch_size,
-                  args.seed,
-                  args.method,
-                  args.devices)
+    run_multi_gpu(args)
