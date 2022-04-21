@@ -20,7 +20,7 @@ class Evaluator:
     model : nn.Module
         The encoder model.
     dataset : str
-        Name of the dataset. Choose from 'imagenet', 'cifar10' and 'cifar100'.
+        Name of the dataset. Choose from 'imagenet', 'tiny_imagenet', 'cifar10' and 'cifar100'.
     root : str
         The path to the dataset's root.
     n_views : int, optional
@@ -66,7 +66,7 @@ class Evaluator:
     def cnn_dim(self):
         was_training = self.model.training
         self.model.eval()
-        shape = (3, 244, 244) if self.dataset == 'imagenet' else (3, 32, 32)
+        shape = (3,32,32)
         fake_input = torch.zeros(1, *shape).to(self.device)
         x = self.model(fake_input)
         self.model.train(was_training)
@@ -75,7 +75,7 @@ class Evaluator:
     @cached_property
     def n_classes(self):
         """Number of classes of this dataset"""
-        options = {"imagenet": 1000, "cifar10": 10, "cifar100": 100}
+        options = {"imagenet": 1000, "cifar10": 10, "cifar100": 100, 'tiny_imagenet': 200}
         if self.dataset in options:
             return options[self.dataset]
         else:

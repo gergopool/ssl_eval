@@ -29,7 +29,9 @@ class StoreEvaluator(Evaluator):
     @cached_property
     def n_train_samples(self):
         """Number of training samples of this dataset"""
-        options = {"imagenet": 1281167, "cifar10": 50000, "cifar100": 50000}
+        options = {
+            "imagenet": 1281167, "tiny_imagenet": 100000, "cifar10": 50000, "cifar100": 50000
+        }
         if self.dataset in options:
             return options[self.dataset]
         else:
