@@ -28,7 +28,7 @@ evaluator = Evaluator(model, dataset="imagenet", root='/data/imagenet/', n_views
 | Arg | Description |
 | --- | ----------- |
 | model | The encoder model that maps the input image to a cnn_dim representation. The model doesn't need to be freezed or be in eval mode. |
-| dataset | Name of the dataset. Choose from `'imagenet', 'cifar10', 'cifar100'` |
+| dataset | Name of the dataset. Choose from `'imagenet', 'tiny_imagenet', 'cifar10', 'cifar100'` . *Note: The tiny imagenet needs to be structured as imagenet and the evaluation uses the validation folder. Preprocessing is also identical to imagenet's.*|
 | root | Path to your dataset |
 | n_views | Optional. Number of augmentations, number of views you desire to get from each image example. Default is 1. |
 | batch_size | Optional. The batch size used for iterating over images when generating images, per gpu. Default is 256. |

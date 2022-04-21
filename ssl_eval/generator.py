@@ -64,7 +64,7 @@ class EmbGenerator:
     def cnn_dim(self):
         was_training = self.model.training
         self.model.eval()
-        shape = (3, 244, 244) if self.dataset == 'imagenet' else (3, 32, 32)
+        shape = (3,32,32)
         fake_input = torch.zeros(1, *shape).to(self.device)
         x = self.model(fake_input)
         self.model.train(was_training)

@@ -25,7 +25,7 @@ def get_loaders_by_name(root: str, dataset_name: str, **kwargs) -> Tuple[DataLoa
     root : str
         The path to the dataset's root.
     dataset_name : str
-        Name of the dataset. Choose from 'imagenet', 'cifar10' and 'cifar100'.
+        Name of the dataset. Choose from 'imagenet', 'tiny_imagenet', 'cifar10' and 'cifar100'.
 
     Returns
     -------
@@ -37,12 +37,12 @@ def get_loaders_by_name(root: str, dataset_name: str, **kwargs) -> Tuple[DataLoa
     NameError
         If dataset name is not found.
     """
-    if dataset_name in ['imagenet', 'cifar10', 'cifar100']:
+    if dataset_name in ['imagenet', 'tiny_imagenet', 'cifar10', 'cifar100']:
         return globals()[f"_{dataset_name}"](root, **kwargs)
     else:
         raise NameError(
             f"Unknown dataset name: {dataset_name}. " +\
-             "Please choose from [imagenet, cifar10, cifar100]"
+             "Please choose from [imagenet, tiny_imagenet, cifar10, cifar100]"
         )
 
 
@@ -161,17 +161,23 @@ def _cifar10(root: str,
              train_transform: Callable = None,
              val_transform: Callable = None) -> Tuple[DataLoader, DataLoader]:
 
-    trans = transforms.Compose([
-        transforms.Resize(32),
-        transforms.ToTensor(),
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
-    ])
+    if not train_transform:
+        train_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+        ])
 
-    train_transform = train_transform if train_transform else trans
-    val_transform = val_transform if val_transform else trans
+    if not val_transform:
+        val_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+        ])
 
-    train_transform = _NViewTransform(trans, train_transform, n_views=n_views)
-    val_transform = _NViewTransform(trans, val_transform, n_views=1)
+    train_transform = _NViewTransform(val_transform, train_transform, n_views=n_views)
+    val_transform = _NViewTransform(val_transform, val_transform, n_views=1)
 
     train_dataset = datasets.CIFAR10(root, transform=train_transform, train=True)
     val_dataset = datasets.CIFAR10(root, transform=val_transform, train=False)
@@ -185,20 +191,60 @@ def _cifar100(root: str,
               train_transform: Callable = None,
               val_transform: Callable = None) -> Tuple[DataLoader, DataLoader]:
 
-    trans = transforms.Compose([
-        transforms.Resize(32),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
-    ])
+    if not train_transform:
+        train_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
+        ])
 
-    train_transform = train_transform if train_transform else trans
-    val_transform = val_transform if val_transform else trans
+    if not val_transform:
+        val_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
+        ])
 
-    train_transform = _NViewTransform(trans, train_transform, n_views=n_views)
-    val_transform = _NViewTransform(trans, val_transform, n_views=1)
+    train_transform = _NViewTransform(val_transform, train_transform, n_views=n_views)
+    val_transform = _NViewTransform(val_transform, val_transform, n_views=1)
 
     train_dataset = datasets.CIFAR100(root, transform=train_transform, train=True)
     val_dataset = datasets.CIFAR100(root, transform=val_transform, train=False)
+
+    return _get_loaders(train_dataset, val_dataset, batch_size)
+
+
+def _tiny_imagenet(root: str,
+                   batch_size: int = 256,
+                   n_views: int = 1,
+                   train_transform: Callable = None,
+                   val_transform: Callable = None) -> Tuple[DataLoader, DataLoader]:
+
+    # Different data roots for train and val
+    train_root = os.path.join(root, 'train')
+    val_root = os.path.join(root, 'val')
+
+    if not train_transform:
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(64),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+    if not val_transform:
+        val_transform = transforms.Compose([
+            transforms.Resize(64),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+    train_transform = _NViewTransform(train_transform, val_transform, n_views=n_views)
+    val_transform = _NViewTransform(train_transform, val_transform, n_views=1)
+
+    train_dataset = datasets.ImageFolder(train_root, train_transform)
+    val_dataset = datasets.ImageFolder(val_root, val_transform)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 
@@ -216,6 +262,7 @@ def _imagenet(root: str,
     if not train_transform:
         train_transform = transforms.Compose([
             transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
