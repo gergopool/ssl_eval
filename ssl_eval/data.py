@@ -176,7 +176,7 @@ def _cifar10(root: str,
             transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
         ])
 
-    train_transforms = _NViewTransform(val_transform, train_transform, n_views=n_views)
+    train_transforms = _NViewTransform(train_transform, val_transform, n_views=n_views)
     val_transforms = _NViewTransform(val_transform, val_transform, n_views=1)
 
     train_dataset = datasets.CIFAR10(root, transform=train_transforms, train=True)
@@ -206,7 +206,7 @@ def _cifar100(root: str,
             transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
         ])
 
-    train_transforms = _NViewTransform(val_transform, train_transform, n_views=n_views)
+    train_transforms = _NViewTransform(train_transform, val_transform, n_views=n_views)
     val_transforms = _NViewTransform(val_transform, val_transform, n_views=1)
 
     train_dataset = datasets.CIFAR100(root, transform=train_transforms, train=True)
