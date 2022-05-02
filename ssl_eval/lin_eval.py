@@ -3,6 +3,7 @@ from torch import nn
 from copy import deepcopy
 from torch.utils import data
 from typing import Tuple
+from torch.utils.data import DataLoader
 
 from . import pkbar
 from .distributed import get_world_size_n_rank
@@ -222,6 +223,17 @@ class LinearEvaluator:
             print(f"Top1 @ Linear Eval: {acc_value*100:3.2f}%")
         return val_acc
 
+    def iter_with_convert(self, data_loader: DataLoader, device: torch.device) -> torch.Tensor:
+        next_x, next_y = None, None
+        for (x, y) in data_loader:
+            out_x = next_x
+            out_y = next_y
+            next_x = x.to(device, non_blocking=True)
+            next_y = y.to(device, non_blocking=True)
+            if out_x is not None:
+                yield out_x.float(), out_y
+        yield next_x.float(), next_y
+
     def _run_epoch(self,
                    data_laoder: data.DataLoader,
                    opt: torch.optim.Optimizer = None) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -248,11 +260,9 @@ class LinearEvaluator:
         # CE loss
         criterion = nn.CrossEntropyLoss().to(self.device)
 
-        for z, y in data_laoder:
+        for z, y in self.iter_with_convert(data_laoder, self.device):
 
             # Calculate y_hat
-            z = z.to(self.device).float()
-            y = y.to(self.device)
             y_hat = self.classifier(z)
 
             # Loss

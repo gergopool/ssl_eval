@@ -176,11 +176,11 @@ def _cifar10(root: str,
             transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
         ])
 
-    train_transform = _NViewTransform(val_transform, train_transform, n_views=n_views)
-    val_transform = _NViewTransform(val_transform, val_transform, n_views=1)
+    train_transforms = _NViewTransform(val_transform, train_transform, n_views=n_views)
+    val_transforms = _NViewTransform(val_transform, val_transform, n_views=1)
 
-    train_dataset = datasets.CIFAR10(root, transform=train_transform, train=True)
-    val_dataset = datasets.CIFAR10(root, transform=val_transform, train=False)
+    train_dataset = datasets.CIFAR10(root, transform=train_transforms, train=True)
+    val_dataset = datasets.CIFAR10(root, transform=val_transforms, train=False)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 
@@ -206,11 +206,11 @@ def _cifar100(root: str,
             transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
         ])
 
-    train_transform = _NViewTransform(val_transform, train_transform, n_views=n_views)
-    val_transform = _NViewTransform(val_transform, val_transform, n_views=1)
+    train_transforms = _NViewTransform(val_transform, train_transform, n_views=n_views)
+    val_transforms = _NViewTransform(val_transform, val_transform, n_views=1)
 
-    train_dataset = datasets.CIFAR100(root, transform=train_transform, train=True)
-    val_dataset = datasets.CIFAR100(root, transform=val_transform, train=False)
+    train_dataset = datasets.CIFAR100(root, transform=train_transforms, train=True)
+    val_dataset = datasets.CIFAR100(root, transform=val_transforms, train=False)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 
@@ -240,11 +240,11 @@ def _tiny_imagenet(root: str,
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
 
-    train_transform = _NViewTransform(train_transform, val_transform, n_views=n_views)
-    val_transform = _NViewTransform(train_transform, val_transform, n_views=1)
+    train_transforms = _NViewTransform(train_transform, val_transform, n_views=n_views)
+    val_transforms = _NViewTransform(train_transform, val_transform, n_views=1)
 
-    train_dataset = datasets.ImageFolder(train_root, train_transform)
-    val_dataset = datasets.ImageFolder(val_root, val_transform)
+    train_dataset = datasets.ImageFolder(train_root, train_transforms)
+    val_dataset = datasets.ImageFolder(val_root, val_transforms)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 
@@ -275,11 +275,11 @@ def _imagenet(root: str,
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
 
-    train_transform = _NViewTransform(train_transform, val_transform, n_views=n_views)
-    val_transform = _NViewTransform(train_transform, val_transform, n_views=1)
+    train_transforms = _NViewTransform(train_transform, val_transform, n_views=n_views)
+    val_transforms = _NViewTransform(train_transform, val_transform, n_views=1)
 
-    train_dataset = datasets.ImageFolder(train_root, train_transform)
-    val_dataset = datasets.ImageFolder(val_root, val_transform)
+    train_dataset = datasets.ImageFolder(train_root, train_transforms)
+    val_dataset = datasets.ImageFolder(val_root, val_transforms)
 
     return _get_loaders(train_dataset, val_dataset, batch_size)
 

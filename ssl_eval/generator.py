@@ -90,6 +90,17 @@ class EmbGenerator:
     # Private functions
     # =========================================================================
 
+    def iter_with_convert(self, data_loader:DataLoader, device:torch.device) -> torch.Tensor:
+        next_x, next_y = None, None
+        for (xs, y) in data_loader:
+            out_x = next_x
+            out_y = next_y
+            next_x = [x.to(device, non_blocking=True) for x in xs]
+            next_y = y.to(device, non_blocking=True)
+            if out_x:
+                yield out_x, out_y
+        yield next_x, next_y
+
     def _generate(self, data_loader:DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
         """_generate
         Runs over data data loader once and saves every generated embedding
@@ -120,30 +131,56 @@ class EmbGenerator:
             title = f'Generating embeddings | {title_suffix}'
             pbar = pkbar.Pbar(name=title, target=len(data_loader))
 
+        Z = torch.zeros(len(data_loader.dataset), self.cnn_dim, self.n_views).half()
+        Y = torch.zeros(len(data_loader.dataset))
+        next_i = 0
+
         # Generate embeddings
         with torch.no_grad():
-            for i, (x_views, y) in enumerate(data_loader):
+            last_z = None
+            last_y = None
+            current_z = torch.zeros(self.batch_size, self.cnn_dim, self.n_views)
+            current_z = current_z.half().to(self.device, non_blocking=True)
 
-                # Move labels to GPU in order to be gatherable
-                y = y.to(self.device)
+            for i, (x_views, y) in enumerate(self.iter_with_convert(data_loader, self.device)):
+
+                # Move to CPU
+                if last_z is not None:
+                    last_z = AllGather.apply(last_z).to('cpu', non_blocking=True)
+                    last_y = AllGather.apply(last_y).to('cpu', non_blocking=True)
+
+                # Last batch size might be different
+                if i == len(data_loader)-1:
+                    current_z = torch.zeros(len(y), self.cnn_dim, self.n_views)
+                    current_z = current_z.half().to(self.device, non_blocking=True)
 
                 # Save batch_size amount of embeddings of n views
-                # z.shape == batch_size x cnn_dim x n_views
-                z = torch.zeros(len(y), self.cnn_dim, len(x_views)).half().to(self.device)
                 with torch.cuda.amp.autocast():
                     for j, x in enumerate(x_views):
-                        z[:, :, j] = self.model(x.to(self.device))
+                        current_z[:, :, j] = self.model(x)
 
-                # Collect embeddings from all GPU and save to CPU
-                Z.append(AllGather.apply(z).cpu())
-                Y.append(AllGather.apply(y).cpu())
+                # Save previous embeddings
+                if last_z is not None:
+                    prev_i = next_i
+                    next_i += len(last_z)
+                    Z[prev_i:next_i] += last_z
+                    Y[prev_i:next_i] += last_y
+                    
+                # Update previous embeddings with current
+                last_z = current_z.clone()
+                last_y = y
 
                 # Step progress progress bar
                 if self.verbose:
                     pbar.update(i)
 
+        prev_i = next_i
+        next_i += len(last_z)
+        Z[prev_i:next_i] += last_z.cpu()
+        Y[prev_i:next_i] += last_y.cpu()
+
         # Set back original mode of model, train or eval
         self.model.train(was_training)
 
         # Embeddings, labels
-        return torch.cat(Z), torch.cat(Y)
+        return Z, Y
