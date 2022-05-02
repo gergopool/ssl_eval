@@ -81,10 +81,10 @@ class EmbGenerator:
         return *train_data, *val_data
 
     def get_val_embs(self):
-        return self._generate(self.val_loader)
+        return self._generate(self.val_loader, n_views=1)
 
     def get_train_embs(self):
-        return self._generate(self.train_loader)
+        return self._generate(self.train_loader, n_views=self.n_views)
 
     # =========================================================================
     # Private functions
@@ -101,7 +101,7 @@ class EmbGenerator:
                 yield out_x, out_y
         yield next_x, next_y
 
-    def _generate(self, data_loader:DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _generate(self, data_loader:DataLoader, n_views:int=1) -> Tuple[torch.Tensor, torch.Tensor]:
         """_generate
         Runs over data data loader once and saves every generated embedding
         to the cpu. The embeddings are calcualted in half-precision.
@@ -110,6 +110,8 @@ class EmbGenerator:
         ----------
         data_loader : DataLoader
            The data loader.
+        n_views: int
+           Number of views.
 
         Returns
         -------
@@ -131,7 +133,7 @@ class EmbGenerator:
             title = f'Generating embeddings | {title_suffix}'
             pbar = pkbar.Pbar(name=title, target=len(data_loader))
 
-        Z = torch.zeros(len(data_loader.dataset), self.cnn_dim, self.n_views).half()
+        Z = torch.zeros(len(data_loader.dataset), self.cnn_dim, n_views).half()
         Y = torch.zeros(len(data_loader.dataset)).long()
         next_i = 0
 
@@ -139,7 +141,7 @@ class EmbGenerator:
         with torch.no_grad():
             last_z = None
             last_y = None
-            current_z = torch.zeros(self.batch_size, self.cnn_dim, self.n_views)
+            current_z = torch.zeros(self.batch_size, self.cnn_dim, n_views)
             current_z = current_z.half().to(self.device, non_blocking=True)
 
             for i, (x_views, y) in enumerate(self.iter_with_convert(data_loader, self.device)):
