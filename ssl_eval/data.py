@@ -241,7 +241,7 @@ def _tiny_imagenet(root: str,
         ])
 
     train_transforms = _NViewTransform(train_transform, val_transform, n_views=n_views)
-    val_transforms = _NViewTransform(train_transform, val_transform, n_views=1)
+    val_transforms = _NViewTransform(val_transform, val_transform, n_views=1)
 
     train_dataset = datasets.ImageFolder(train_root, train_transforms)
     val_dataset = datasets.ImageFolder(val_root, val_transforms)
@@ -276,7 +276,7 @@ def _imagenet(root: str,
         ])
 
     train_transforms = _NViewTransform(train_transform, val_transform, n_views=n_views)
-    val_transforms = _NViewTransform(train_transform, val_transform, n_views=1)
+    val_transforms = _NViewTransform(val_transform, val_transform, n_views=1)
 
     train_dataset = datasets.ImageFolder(train_root, train_transforms)
     val_dataset = datasets.ImageFolder(val_root, val_transforms)

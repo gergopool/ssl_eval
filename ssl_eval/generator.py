@@ -132,7 +132,7 @@ class EmbGenerator:
             pbar = pkbar.Pbar(name=title, target=len(data_loader))
 
         Z = torch.zeros(len(data_loader.dataset), self.cnn_dim, self.n_views).half()
-        Y = torch.zeros(len(data_loader.dataset))
+        Y = torch.zeros(len(data_loader.dataset)).long()
         next_i = 0
 
         # Generate embeddings
@@ -150,9 +150,7 @@ class EmbGenerator:
                     last_y = AllGather.apply(last_y).to('cpu', non_blocking=True)
 
                 # Last batch size might be different
-                if i == len(data_loader)-1:
-                    current_z = torch.zeros(len(y), self.cnn_dim, self.n_views)
-                    current_z = current_z.half().to(self.device, non_blocking=True)
+                current_z = current_z[:len(y)]
 
                 # Save batch_size amount of embeddings of n views
                 with torch.cuda.amp.autocast():

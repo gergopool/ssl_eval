@@ -178,7 +178,7 @@ store_evaluator = StoreEvaluator(net.encoder,
                                  "cifar10",
                                  "/data/shared/data/cifar10",
                                  storage_size=3)
-evaluator = Evaluator(net.encoder, "cifar10", "/data/shared/data/cifar10", n_views=5)
+evaluator = Evaluator(net.encoder, "cifar10", "/data/shared/data/cifar10", n_views=3)
 
 
 # Training
@@ -217,7 +217,7 @@ def test():
     evaluator.knn(k=[1, 5, 20])
     # evaluator.snn()
     # evaluator.snn(balance_labels=True)
-    evaluator.linear_eval(epochs=100, batch_size=4096, lr=1.6, warm_start=False)
+    evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
 
 
 for epoch in range(2):
