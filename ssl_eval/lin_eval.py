@@ -247,12 +247,12 @@ class LinearEvaluator:
         acc_meter = DistributedAverageMeter(self.device)
 
         # CE loss
-        criterion = nn.CrossEntropyLoss().to(self.device, non_blocking=True)
+        criterion = nn.CrossEntropyLoss().to(self.device)
 
         for z, y in iter_with_convert(data_laoder, self.device):
 
             # Calculate y_hat
-            y_hat = self.classifier(z.to(torch.float32, non_blocking=True))
+            y_hat = self.classifier(z.float())
 
             # Loss
             loss = criterion(y_hat, y)
