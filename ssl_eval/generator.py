@@ -7,6 +7,7 @@ from typing import Callable, Tuple
 from . import pkbar
 from .data import get_loaders_by_name
 from .distributed import AllGather, get_world_size_n_rank
+from .utils import iter_with_convert
 
 
 class EmbGenerator:
@@ -90,17 +91,6 @@ class EmbGenerator:
     # Private functions
     # =========================================================================
 
-    def iter_with_convert(self, data_loader:DataLoader, device:torch.device) -> torch.Tensor:
-        next_x, next_y = None, None
-        for (xs, y) in data_loader:
-            out_x = next_x
-            out_y = next_y
-            next_x = [x.to(device, non_blocking=True) for x in xs]
-            next_y = y.to(device, non_blocking=True)
-            if out_x:
-                yield out_x, out_y
-        yield next_x, next_y
-
     def _generate(self, data_loader:DataLoader, n_views:int=1) -> Tuple[torch.Tensor, torch.Tensor]:
         """_generate
         Runs over data data loader once and saves every generated embedding
@@ -144,7 +134,7 @@ class EmbGenerator:
             current_z = torch.zeros(self.batch_size, self.cnn_dim, n_views)
             current_z = current_z.half().to(self.device, non_blocking=True)
 
-            for i, (x_views, y) in enumerate(self.iter_with_convert(data_loader, self.device)):
+            for i, (x_views, y) in enumerate(iter_with_convert(data_loader, self.device)):
 
                 # Move to CPU
                 if last_z is not None:

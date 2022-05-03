@@ -1,4 +1,5 @@
 import torch
+from torch.utils.data import DataLoader
 from .distributed import AllGather
 
 
@@ -38,9 +39,26 @@ class DistributedAverageMeter(object):
         return self._sum[0] / self._count[0]
 
     def reset(self):
-        self._sum = torch.zeros(1, self.n).to(self.device)
-        self._count = torch.zeros(1, self.n).to(self.device)
+        self._sum = torch.zeros(1, self.n).to(self.device, non_blocking=True)
+        self._count = torch.zeros(1, self.n).to(self.device, non_blocking=True)
 
     def update(self, val: torch.Tensor, n: int = 1):
         self._sum[0] += val
         self._count[0] += n
+
+
+def iter_with_convert(data_loader: DataLoader, device: torch.device) -> torch.Tensor:
+    next_x, next_y = None, None
+    for (xs, y) in data_loader:
+        out_x = next_x
+        out_y = next_y
+        if isinstance(xs, list):
+            next_x = [x.to(device, non_blocking=True) for x in xs]
+        elif isinstance(xs, torch.Tensor):
+            next_x = xs.to(device, non_blocking=True)
+        else:
+            raise NotImplementedError
+        next_y = y.to(device, non_blocking=True)
+        if out_x is not None:
+            yield out_x, out_y
+    yield next_x, next_y

@@ -10,7 +10,7 @@ from .distributed import get_world_size_n_rank
 from .larc import LARC
 from .early_stopping import EarlyStopping
 from .data import create_lin_eval_dataloader
-from .utils import DistributedAverageMeter
+from .utils import DistributedAverageMeter, iter_with_convert
 
 __all__ = ["LinearEvaluator"]
 
@@ -223,17 +223,6 @@ class LinearEvaluator:
             print(f"Top1 @ Linear Eval: {acc_value*100:3.2f}%")
         return val_acc
 
-    def iter_with_convert(self, data_loader: DataLoader, device: torch.device) -> torch.Tensor:
-        next_x, next_y = None, None
-        for (x, y) in data_loader:
-            out_x = next_x
-            out_y = next_y
-            next_x = x.to(device, non_blocking=True)
-            next_y = y.to(device, non_blocking=True)
-            if out_x is not None:
-                yield out_x.float(), out_y
-        yield next_x.float(), next_y
-
     def _run_epoch(self,
                    data_laoder: data.DataLoader,
                    opt: torch.optim.Optimizer = None) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -258,12 +247,12 @@ class LinearEvaluator:
         acc_meter = DistributedAverageMeter(self.device)
 
         # CE loss
-        criterion = nn.CrossEntropyLoss().to(self.device)
+        criterion = nn.CrossEntropyLoss().to(self.device, non_blocking=True)
 
-        for z, y in self.iter_with_convert(data_laoder, self.device):
+        for z, y in iter_with_convert(data_laoder, self.device):
 
             # Calculate y_hat
-            y_hat = self.classifier(z)
+            y_hat = self.classifier(z.to(torch.float32, non_blocking=True))
 
             # Loss
             loss = criterion(y_hat, y)
