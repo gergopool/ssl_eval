@@ -3,13 +3,14 @@ from torch import nn
 from copy import deepcopy
 from torch.utils import data
 from typing import Tuple
+from torch.utils.data import DataLoader
 
 from . import pkbar
 from .distributed import get_world_size_n_rank
 from .larc import LARC
 from .early_stopping import EarlyStopping
 from .data import create_lin_eval_dataloader
-from .utils import DistributedAverageMeter
+from .utils import DistributedAverageMeter, iter_with_convert
 
 __all__ = ["LinearEvaluator"]
 
@@ -246,14 +247,12 @@ class LinearEvaluator:
         acc_meter = DistributedAverageMeter(self.device)
 
         # CE loss
-        criterion = nn.CrossEntropyLoss().to(self.device)
+        criterion = nn.CrossEntropyLoss().to(self.device, non_blocking=True)
 
-        for z, y in data_laoder:
+        for z, y in iter_with_convert(data_laoder, self.device):
 
             # Calculate y_hat
-            z = z.to(self.device).float()
-            y = y.to(self.device)
-            y_hat = self.classifier(z)
+            y_hat = self.classifier(z.to(torch.float32, non_blocking=True))
 
             # Loss
             loss = criterion(y_hat, y)

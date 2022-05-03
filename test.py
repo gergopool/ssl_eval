@@ -201,6 +201,7 @@ def train(epoch):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
+    print("acc", correct / total * 100)
 
 
 def test():
@@ -214,9 +215,9 @@ def test():
     print("Offline")
     evaluator.generate_embeddings()
     evaluator.knn(k=[1, 5, 20])
-    evaluator.snn()
-    evaluator.snn(balance_labels=True)
-    # evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
+    # evaluator.snn()
+    # evaluator.snn(balance_labels=True)
+    evaluator.linear_eval(epochs=100, batch_size=512, lr=0.2, warm_start=False)
 
 
 for epoch in range(2):
