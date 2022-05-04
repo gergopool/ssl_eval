@@ -139,7 +139,7 @@ class EmbGenerator:
                 # Move to CPU
                 if last_z is not None:
                     last_z = AllGather.apply(last_z).to('cpu', non_blocking=True)
-                    last_y = AllGather.apply(last_y).to('cpu', non_blocking=True)
+                    last_y = AllGather.apply(last_y).to('cpu', non_blocking=False)
 
                 # Last batch size might be different
                 current_z = current_z[:len(y)]
